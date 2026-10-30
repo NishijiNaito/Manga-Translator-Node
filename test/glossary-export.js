@@ -22,6 +22,7 @@ global.fetch = async (url, init) => {
 };
 process.env.DATA_DIR = TMP + '/data';
 process.env.PORT = '3078';
+process.env.APP_SECRET = ''; // a real .env may set it: these tests run the server in local mode
 process.env.GEMINI_API_KEY = 'stub';
 
 const results = [];

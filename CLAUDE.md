@@ -33,6 +33,7 @@ Browser settings live in `localStorage["mt-settings"]`: `provider key model lang
 | `lib/llm.js` | Providers (Gemini direct, OpenRouter), prompt building, lenient JSON parser, optional slicing + dedupe, `translateImage`, `translateRegion` (one box), retry/backoff, cost estimate, `listModels` |
 | `lib/extract.js` | Find `<img>` in HTML (lazy attrs, srcset), `rewriteHtml` for `/view` |
 | `lib/zip.js` | Own streaming "stored" ZIP writer (no dependency) |
+| `lib/security.js` | `safeGet` (SSRF-safe fetch), `makeAuth` (session/signed links), rate limiter |
 | `public/app.js` | The whole web UI (home + editor + reader). Sections are commented. Routes: `#/`, `#/p/<id>[/<imageIndex>]` (editor), `#/p/<id>/read` (continuous reader: non-skipped images as one strip, result or original fallback with red outline, width slider + original toggle kept in `mt-settings.reader`) |
 | `extension/` | MV3 extension: `background.js` does the work, `popup.*` is a thin UI |
 | `test/` | Browser tests (puppeteer-core), `run-all.js` runs them |
@@ -82,15 +83,23 @@ API: `PUT .../images/:i/keep` {keep}, `POST /api/projects` (url | html | extensi
 - **Extension swaps by URL**, not index. `blob:` images work only in the same page session (URL changes on reload).
   Lazy images are collected from `data-src` first; their 1×1 `src` placeholder must not be used for the size filter
   (that bug dropped every lazy image). Auto-swap on page load is opt-in because it sends every visited URL to the server.
-- **Security**: server binds `127.0.0.1` on purpose — it fetches whatever URL a client gives it (SSRF-ish) and has
-  no auth. Don't expose it without adding auth.
+- **Security / hosted mode** (details + nginx config in `DEPLOY.md`): `APP_SECRET` set = hosted. Then every route needs the
+  login cookie (`mt_session`, HMAC-signed, HttpOnly + SameSite=Strict, Origin check on writes), or `Authorization: Bearer
+  <secret>` (the extension; popup has a password field), or a signed `/files/...?e=&s=` link (images on other sites and in
+  `/view` can't send cookies; `/replacements` links last 24 h, `/view` 6 h). Fetches go through `safeGet` in `lib/security.js`:
+  ports 80/443 only, private/loopback/metadata addresses refused on the real connection and on every redirect, size limit after
+  decompression. `/view` serves someone else's HTML: scripts/iframes/forms/`on*` removed in `rewriteHtml` AND a `sandbox` CSP.
+  All pages get a strict CSP (`script-src 'self'`): NO inline `<script>`/`onclick=` in `public/`. Without `APP_SECRET` the
+  server refuses any HOST except loopback (local tool, no login, fetches unrestricted). Behind nginx set `TRUST_PROXY=1`.
+  Tests that run the server locally set `process.env.APP_SECRET = ''` because dotenv would otherwise pick it up from `.env`.
+  Limits: one shared secret (no users), in-memory rate limits, `MAX_PROJECTS`/`MAX_IMAGES_PER_PROJECT`/`LLM_CALLS_PER_MIN`.
 
 ## Testing
 
 `npm test` drives the real server with the real editor in headless Chrome, and the real extension in Edge. Only the
 Gemini endpoint is stubbed (global `fetch` intercepts `generativelanguage`), so no key is needed. Needs Chrome, Edge
 and Python (zip verification); override locations with `CHROME_PATH` / `EDGE_PATH`. Branded Chrome 137+ ignores
-`--load-extension`, which is why the extension test uses Edge. Ports used: 3077-3082 and 8093-8099.
+`--load-extension`, which is why the extension test uses Edge. Ports used: 3077-3083 and 8093-8100.
 
 ## Verified vs NOT verified
 

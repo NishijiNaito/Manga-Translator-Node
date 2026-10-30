@@ -10,6 +10,9 @@ chrome.storage.local.get('serverUrl', ({ serverUrl }) => {
   $('server').value = serverUrl || DEFAULT_SERVER;
 });
 
+chrome.storage.local.get('token', ({ token }) => { $('token').value = token || ''; });
+$('token').addEventListener('change', () => chrome.storage.local.set({ token: $('token').value.trim() }));
+
 chrome.storage.local.get('autoSwap', ({ autoSwap }) => { $('auto').checked = !!autoSwap; });
 $('auto').addEventListener('change', () => chrome.storage.local.set({ autoSwap: $('auto').checked }));
 
@@ -19,7 +22,7 @@ $('server').addEventListener('change', () => {
 
 async function run(action, busy, done) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  await chrome.storage.local.set({ serverUrl: $('server').value.trim().replace(/\/+$/, '') });
+  await chrome.storage.local.set({ serverUrl: $('server').value.trim().replace(/\/+$/, ''), token: $('token').value.trim() });
   document.querySelectorAll('button').forEach((b) => (b.disabled = true));
   status(busy);
   try {

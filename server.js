@@ -7,6 +7,7 @@ const path = require('path');
 const { extractImages, rewriteHtml } = require('./lib/extract');
 const { translateImage, translateRegion, listModels } = require('./lib/llm');
 const { streamZip } = require('./lib/zip');
+const { safeGet, makeAuth, makeLimiter, parseCookies } = require('./lib/security');
 
 const PORT = Number(process.env.PORT || 3000);
 // Loopback by default: this server fetches arbitrary URLs for you, so don't
@@ -17,8 +18,99 @@ const MIN_SIDE = Number(process.env.MIN_IMAGE_SIDE || 150); // skip icons / avat
 const MAX_BYTES = 30 * 1024 * 1024;
 const UA = 'Mozilla/5.0 (compatible; MangaTranslatorNode/1.0)';
 
+// ---------- hosted mode ----------
+// APP_SECRET set = the server is meant to be reachable from the internet: login required,
+// fetches to private networks refused, links to files are signed. Without it the server
+// is a local tool and refuses to listen on anything but loopback.
+const SECRET = (process.env.APP_SECRET || '').trim();
+const HOSTED = !!SECRET;
+if (!HOSTED && !['127.0.0.1', 'localhost', '::1'].includes(HOST)) {
+  console.error(`Refusing to listen on ${HOST} without APP_SECRET: this server has no login of its own. Set APP_SECRET (16+ characters) in .env.`);
+  process.exit(1);
+}
+if (HOSTED && SECRET.length < 16) {
+  console.error('APP_SECRET is too short: use at least 16 random characters (e.g. `openssl rand -base64 24`).');
+  process.exit(1);
+}
+const auth = HOSTED ? makeAuth(SECRET) : null;
+const SESSION_TTL = 30 * 24 * 3600;
+const MAX_PROJECTS = Number(process.env.MAX_PROJECTS || 300);
+const MAX_IMAGES = Number(process.env.MAX_IMAGES_PER_PROJECT || 400);
+const loginFails = makeLimiter(5, 15 * 60_000);            // wrong secrets per IP
+const llmCalls = makeLimiter(Number(process.env.LLM_CALLS_PER_MIN || 90), 60_000); // spend guard
+
+// A link to /files/... that works without a cookie (other sites' pages load our images).
+const fileLink = (pathname, ttlSec) => (auth ? auth.signPath(pathname, ttlSec) : pathname);
+
 const app = express();
+if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+app.disable('x-powered-by');
+
+// Headers on everything. (/view overrides the CSP with a stricter sandbox.)
+app.use((req, res, next) => {
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'no-referrer',
+    'X-Frame-Options': 'DENY',
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+      "font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+  });
+  if (req.secure) res.set('Strict-Transport-Security', 'max-age=15552000');
+  next();
+});
+
 app.use(express.json({ limit: '5mb' }));
+
+if (HOSTED) {
+  const sameOrigin = (req) => {
+    const o = req.get('origin');
+    if (!o) return true;
+    try { return new URL(o).host === req.get('host'); } catch { return false; }
+  };
+  const bearer = (req) => {
+    const m = /^Bearer (.+)$/.exec(req.get('authorization') || '');
+    return !!m && auth.secretOk(m[1]);
+  };
+  const cookieOk = (req) => auth.checkSession(parseCookies(req.headers.cookie).mt_session);
+  const secureCookie = (req) => req.secure || process.env.COOKIE_SECURE === '1';
+
+  app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+  app.get('/login.js', (req, res) => res.sendFile(path.join(__dirname, 'public', 'login.js')));
+
+  app.post('/api/login', (req, res) => {
+    if (!sameOrigin(req)) return res.status(403).json({ error: 'Cross-origin request refused' });
+    const ip = req.ip;
+    if (loginFails.full(ip)) return res.status(429).json({ error: 'ลองผิดหลายครั้งเกินไป รอสักครู่แล้วลองใหม่' });
+    if (!auth.secretOk(String(req.body?.secret || ''))) {
+      loginFails.add(ip);
+      return res.status(401).json({ error: 'รหัสไม่ถูกต้อง' });
+    }
+    loginFails.reset(ip);
+    res.set('Set-Cookie', `mt_session=${auth.issueSession(SESSION_TTL)}; Max-Age=${SESSION_TTL}; Path=/; HttpOnly; SameSite=Strict${secureCookie(req) ? '; Secure' : ''}`);
+    res.json({ ok: true });
+  });
+
+  app.post('/api/logout', (req, res) => {
+    res.set('Set-Cookie', `mt_session=; Max-Age=0; Path=/; HttpOnly; SameSite=Strict${secureCookie(req) ? '; Secure' : ''}`);
+    res.json({ ok: true });
+  });
+
+  // The gate: a Bearer secret (extension), the login cookie (browser), or a signed /files link.
+  app.use((req, res, next) => {
+    if (bearer(req)) return next();
+    if (cookieOk(req)) {
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && !sameOrigin(req)) {
+        return res.status(403).json({ error: 'Cross-origin request refused' });
+      }
+      return next();
+    }
+    if (req.method === 'GET' && req.path.startsWith('/files/') && auth.checkPath(req.path, req.query.e, req.query.s)) return next();
+    if (req.method === 'GET' && !req.path.startsWith('/api/') && !req.path.startsWith('/files/')) return res.redirect('/login');
+    res.status(401).json({ error: 'Unauthorized' });
+  });
+}
+
+app.get('/api/session', (req, res) => res.json({ hosted: HOSTED }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- storage helpers ----------
@@ -62,7 +154,9 @@ function updateImage(id, index, patch) {
 const wrap = (fn) => (req, res) =>
   Promise.resolve(fn(req, res)).catch((e) => {
     console.error(e);
-    res.status(e.status || 500).json({ error: e.message });
+    // Hosted: never show file-system errors (they contain server paths).
+    const fsErr = HOSTED && !e.status && /^(ENOENT|EACCES|EPERM|EISDIR|ENOTDIR|EEXIST|EMFILE)$/.test(String(e.code));
+    res.status(e.status || 500).json({ error: fsErr ? 'Server error' : e.message });
   });
 
 function getIndex(req) {
@@ -84,17 +178,12 @@ async function fetchBuffer(url, referer) {
     if (!m) throw new Error('Bad data URL');
     return Buffer.from(m[2], m[1] ? 'base64' : 'utf8');
   }
-  if (!/^https?:\/\//i.test(url)) throw new Error('Only http(s) URLs are supported');
-  const res = await fetch(url, {
+  const res = await safeGet(url, {
     headers: { 'User-Agent': UA, ...(referer ? { Referer: referer } : {}) },
-    signal: AbortSignal.timeout(30_000),
+    maxBytes: MAX_BYTES, allowPrivate: !HOSTED,
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const len = Number(res.headers.get('content-length') || 0);
-  if (len > MAX_BYTES) throw new Error('File too large');
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length > MAX_BYTES) throw new Error('File too large');
-  return buf;
+  return res.buffer;
 }
 
 async function pool(items, limit, worker) {
@@ -116,17 +205,20 @@ app.post('/api/projects', wrap(async (req, res) => {
     baseUrl = String(req.body.pageUrl || '');
     html = html || '';
   } else if (url) {
-    const r = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(30_000) });
+    const r = await safeGet(String(url), { headers: { 'User-Agent': UA }, maxBytes: MAX_BYTES, allowPrivate: !HOSTED });
     if (!r.ok) throw Object.assign(new Error(`Could not fetch page: HTTP ${r.status}`), { status: 502 });
-    html = await r.text();
+    html = r.buffer.toString('utf8');
     baseUrl = r.url || url;
   }
   if (!given && !html) throw Object.assign(new Error('Provide "url", "html" or "images"'), { status: 400 });
 
-  const found = given
+  if (HOSTED && (await fs.readdir(path.join(DATA_DIR, 'projects')).catch(() => [])).length >= MAX_PROJECTS) {
+    throw Object.assign(new Error(`มีโปรเจ็คครบ ${MAX_PROJECTS} แล้ว ลบอันเก่าก่อน`), { status: 400 });
+  }
+  const found = (given
     ? given.filter((g) => g && Number.isInteger(g.index) && typeof g.url === 'string')
         .map((g) => ({ index: g.index, url: g.url, alt: '' }))
-    : extractImages(html, baseUrl || '');
+    : extractImages(html, baseUrl || '')).slice(0, MAX_IMAGES);
   const id = crypto.randomBytes(6).toString('hex');
   await fs.mkdir(path.join(projectDir(id), 'orig'), { recursive: true });
   await fs.mkdir(path.join(projectDir(id), 'result'), { recursive: true });
@@ -163,7 +255,7 @@ app.post('/api/projects', wrap(async (req, res) => {
 
 // Upload the bytes of an image the server couldn't fetch itself (cookies,
 // hotlink protection, blob: URLs). Adds or replaces that image in the project.
-app.put('/api/projects/:id/images/:i/source', express.raw({ type: '*/*', limit: '60mb' }), wrap(async (req, res) => {
+app.put('/api/projects/:id/images/:i/source', express.raw({ type: '*/*', limit: '32mb' }), wrap(async (req, res) => {
   const p = await needProject(req);
   const index = getIndex(req);
   if (!Buffer.isBuffer(req.body) || !req.body.length) throw Object.assign(new Error('Empty body'), { status: 400 });
@@ -246,7 +338,12 @@ function recordUsage(id, usage) {
   });
 }
 
-app.post('/api/projects/:id/images/:i/translate', wrap(async (req, res) => {
+const spendGuard = (req, res, next) => {
+  if (HOSTED && !llmCalls.hit('all')) return res.status(429).json({ error: 'เรียก AI ถี่เกินไป รอสักครู่' });
+  next();
+};
+
+app.post('/api/projects/:id/images/:i/translate', spendGuard, wrap(async (req, res) => {
   const p = await needProject(req);
   const index = getIndex(req);
   if (!p.images.some((i) => i.index === index)) throw Object.assign(new Error('Image not found'), { status: 404 });
@@ -276,7 +373,7 @@ app.post('/api/projects/:id/images/:i/translate', wrap(async (req, res) => {
 // Re-translate a single box (crop + one small request) instead of the whole image.
 // The client sends the box's current rectangle and applies the text itself, so edits
 // you've made to the other boxes are never touched.
-app.post('/api/projects/:id/images/:i/retranslate-block', wrap(async (req, res) => {
+app.post('/api/projects/:id/images/:i/retranslate-block', spendGuard, wrap(async (req, res) => {
   const p = await needProject(req);
   const index = getIndex(req);
   if (!p.images.some((i) => i.index === index)) throw Object.assign(new Error('Image not found'), { status: 404 });
@@ -315,7 +412,7 @@ app.put('/api/projects/:id/images/:i/blocks', wrap(async (req, res) => {
 }));
 
 app.put('/api/projects/:id/images/:i/result',
-  express.raw({ type: ['image/png', 'application/octet-stream'], limit: '60mb' }),
+  express.raw({ type: ['image/png', 'application/octet-stream'], limit: '32mb' }),
   wrap(async (req, res) => {
     const p = await needProject(req);
     const index = getIndex(req);
@@ -347,9 +444,9 @@ app.get('/files/:id/result/:i.png', wrap(async (req, res) => {
 }));
 
 // ---------- replace images back ----------
-function replacementMap(p, origin) {
+function replacementMap(p, origin, ttlSec = 6 * 3600) {
   const map = {};
-  for (const i of p.images) if (i.hasResult && !i.skipped && !i.keep) map[i.index] = `${origin}/files/${p.id}/result/${i.index}.png`;
+  for (const i of p.images) if (i.hasResult && !i.skipped && !i.keep) map[i.index] = origin + fileLink(`/files/${p.id}/result/${i.index}.png`, ttlSec);
   return map;
 }
 
@@ -408,6 +505,8 @@ app.get('/view/:id', wrap(async (req, res) => {
     throw Object.assign(new Error('This project came from the extension: use its "swap images" button on the live page.'), { status: 404 });
   }
   const origin = `${req.protocol}://${req.get('host')}`;
+  // Someone else's HTML on our origin: no scripts, no cookies, no network except images/styles/fonts.
+  res.set('Content-Security-Policy', "sandbox allow-popups allow-popups-to-escape-sandbox; default-src 'none'; img-src * data: blob:; style-src * 'unsafe-inline'; font-src * data:");
   res.type('html').send(rewriteHtml(html, p.sourceUrl, replacementMap(p, origin)));
 }));
 
@@ -416,9 +515,8 @@ app.get('/view/:id', wrap(async (req, res) => {
 app.get('/api/projects/:id/replacements', wrap(async (req, res) => {
   const p = await needProject(req);
   const origin = `${req.protocol}://${req.get('host')}`;
-  res.set('Access-Control-Allow-Origin', '*');
   res.json(p.images.filter((i) => i.hasResult && !i.skipped && !i.keep).map((i) => ({
-    index: i.index, original: i.url, translated: `${origin}/files/${p.id}/result/${i.index}.png`,
+    index: i.index, original: i.url, translated: origin + fileLink(`/files/${p.id}/result/${i.index}.png`, 24 * 3600),
   })));
 }));
 

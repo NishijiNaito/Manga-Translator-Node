@@ -12,6 +12,7 @@ fs.rmSync(TMP, { recursive: true, force: true });
 fs.mkdirSync(TMP + '/site', { recursive: true });
 process.env.DATA_DIR = TMP + '/data';
 process.env.PORT = '3081';
+process.env.APP_SECRET = ''; // a real .env may set it: these tests run the server in local mode
 
 const results = [];
 const check = (name, ok, extra = '') => { results.push(ok); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${extra ? '  — ' + extra : ''}`); };

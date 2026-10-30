@@ -88,6 +88,15 @@ setSave.onclick = () => {
   toast('บันทึกการตั้งค่าแล้ว');
 };
 
+// Home link + logout (the logout button only exists when the server asks for a login).
+document.getElementById('home').onclick = () => { location.hash = '#/'; };
+fetch('/api/session').then((r) => r.json()).then((s) => {
+  if (!s.hosted) return;
+  const b = document.getElementById('btnLogout');
+  b.hidden = false;
+  b.onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/login'; };
+}).catch(() => {});
+
 // ---------- routing ----------
 function route() {
   const r = location.hash.match(/^#\/p\/([a-f0-9]{12})\/read$/);

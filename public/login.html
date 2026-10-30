@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>เข้าสู่ระบบ — Manga Translator</title>
+<style>
+  :root { --bg:#14161a; --panel:#1d2026; --line:#2e333c; --text:#e6e8eb; --muted:#8b93a1; --accent:#5b9dff; --bad:#ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:var(--bg); color:var(--text); font:14px/1.5 system-ui, sans-serif; }
+  form { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:24px; width:min(340px, 92vw); }
+  h1 { font-size:17px; margin:0 0 14px; }
+  input, button { font:inherit; color:inherit; width:100%; padding:9px 10px; border-radius:6px; border:1px solid var(--line); background:#262a32; }
+  button { margin-top:12px; background:var(--accent); border-color:var(--accent); color:#06101f; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  #err { min-height:20px; margin-top:10px; color:var(--bad); font-size:13px; }
+</style>
+</head>
+<body>
+<form id="f">
+  <h1>📖 Manga Translator</h1>
+  <input id="secret" type="password" autocomplete="current-password" placeholder="รหัสผ่าน" autofocus required>
+  <button id="go" type="submit">เข้าสู่ระบบ</button>
+  <div id="err" role="alert"></div>
+</form>
+<script src="login.js"></script>
+</body>
+</html>

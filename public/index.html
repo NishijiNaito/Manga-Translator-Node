@@ -12,6 +12,7 @@
   body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui, "Noto Sans Thai", sans-serif; }
   header { display:flex; align-items:center; gap:12px; padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:10; }
   header h1 { font-size:16px; margin:0; cursor:pointer; }
+  [hidden] { display:none !important; }
   header .sp { flex:1; }
   button, input, select, textarea { font:inherit; color:inherit; background:#262a32; border:1px solid var(--line); border-radius:6px; padding:6px 10px; }
   button { cursor:pointer; } button:hover { border-color:var(--accent); }
@@ -80,9 +81,10 @@
 </head>
 <body>
 <header>
-  <h1 onclick="location.hash='#/'">📖 Manga Translator</h1>
+  <h1 id="home">📖 Manga Translator</h1>
   <span id="crumb" class="muted"></span>
   <span class="sp"></span>
+  <button id="btnLogout" hidden>ออกจากระบบ</button>
   <button id="btnSettings">⚙️ ตั้งค่า</button>
 </header>
 <div id="app"></div>

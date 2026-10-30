@@ -85,8 +85,10 @@ async function serverUrl() {
   return (s || DEFAULT_SERVER).replace(/\/+$/, '');
 }
 
-async function api(path, opts) {
-  const res = await fetch((await serverUrl()) + path, opts);
+async function api(path, opts = {}) {
+  const { token } = await chrome.storage.local.get('token');
+  const headers = { ...(opts.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+  const res = await fetch((await serverUrl()) + path, { ...opts, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
