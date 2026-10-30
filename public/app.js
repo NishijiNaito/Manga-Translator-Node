@@ -463,6 +463,12 @@ function layoutText(ctx, b) {
 
 function paintBlocks(ctx, list, src) {
   for (const b of list) {
+    // Extra areas of an L-shaped / split bubble: erased only, the text goes in the main box.
+    for (const e of b.erase || []) {
+      if (!e.bg) e.bg = medianColor(src, e.x, e.y, e.w, e.h);
+      ctx.fillStyle = e.bg;
+      ctx.fillRect(e.x, e.y, e.w, e.h);
+    }
     if (!b.bg) b.bg = medianColor(src, b.x, b.y, b.w, b.h);
     ctx.fillStyle = b.bg;
     ctx.fillRect(b.x, b.y, b.w, b.h);
@@ -508,25 +514,27 @@ function drawBoxes() {
     <div class="box ${b.id === selId ? 'sel' : ''}" data-id="${b.id}"
       style="left:${b.x * scale}px;top:${b.y * scale}px;width:${b.w * scale}px;height:${b.h * scale}px">
       <div class="h"></div></div>`).join('');
-  $('boxes').querySelectorAll('.box').forEach((el) => {
-    const b = blocks.find((x) => x.id === Number(el.dataset.id));
+  // One drag/resize handler for the main boxes and the erase areas.
+  const attachDrag = $('boxes').__attachDrag = (el, rect, blockId) => {
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
+      e.stopPropagation();
+      if (e.target.closest('[data-edel]')) return;
       // Select without scrolling the canvas (you're already looking at this box);
       // the side list scrolls to its text instead.
-      selectBlock(b.id, { scrollBox: false });
+      selectBlock(blockId, { scrollBox: false });
       const resize = e.target.classList.contains('h');
-      const sx = e.clientX, sy = e.clientY, ox = b.x, oy = b.y, ow = b.w, oh = b.h;
+      const sx = e.clientX, sy = e.clientY, ox = rect.x, oy = rect.y, ow = rect.w, oh = rect.h;
       let moved = false;
       el.setPointerCapture(e.pointerId);
       const move = (ev) => {
         if (!moved) { pushUndo(); moved = true; } // a plain click isn't an undo step
         const dx = (ev.clientX - sx) / scale, dy = (ev.clientY - sy) / scale;
-        if (resize) { b.w = Math.max(10, Math.round(ow + dx)); b.h = Math.max(10, Math.round(oh + dy)); }
-        else { b.x = Math.round(ox + dx); b.y = Math.round(oy + dy); }
-        b.bg = null; // resample the background for the new position/size
-        el.style.left = b.x * scale + 'px'; el.style.top = b.y * scale + 'px';
-        el.style.width = b.w * scale + 'px'; el.style.height = b.h * scale + 'px';
+        if (resize) { rect.w = Math.max(10, Math.round(ow + dx)); rect.h = Math.max(10, Math.round(oh + dy)); }
+        else { rect.x = Math.round(ox + dx); rect.y = Math.round(oy + dy); }
+        rect.bg = null; // resample the background for the new position/size
+        el.style.left = rect.x * scale + 'px'; el.style.top = rect.y * scale + 'px';
+        el.style.width = rect.w * scale + 'px'; el.style.height = rect.h * scale + 'px';
         redraw();
       };
       const up = () => {
@@ -536,13 +544,57 @@ function drawBoxes() {
           changed();
           drawBoxes();
           drawSide();
-          selectBlock(b.id, { scrollBox: false, scrollSide: false });
+          selectBlock(blockId, { scrollBox: false, scrollSide: false });
         }
       };
       el.addEventListener('pointermove', move);
       el.addEventListener('pointerup', up);
     });
+  };
+  $('boxes').querySelectorAll('.box').forEach((el) => {
+    const b = blocks.find((x) => x.id === Number(el.dataset.id));
+    attachDrag(el, b, b.id);
   });
+  drawEraseBoxes();
+}
+
+// Dashed red rectangles: the extra areas that get erased for the selected block.
+function drawEraseBoxes() {
+  const host = $('boxes');
+  if (!host) return;
+  host.querySelectorAll('.ebox').forEach((el) => el.remove());
+  const b = blocks.find((x) => x.id === selId);
+  if (!b || !b.erase?.length) return;
+  b.erase.forEach((r, n) => {
+    const el = document.createElement('div');
+    el.className = 'ebox';
+    el.title = 'พื้นที่ลบเพิ่ม (ไม่ใส่ข้อความ)';
+    el.style.cssText = `left:${r.x * scale}px;top:${r.y * scale}px;width:${r.w * scale}px;height:${r.h * scale}px`;
+    el.innerHTML = '<div class="h"></div><button data-edel title="ลบพื้นที่นี้">✕</button>';
+    host.appendChild(el);
+    el.querySelector('[data-edel]').onclick = (e) => {
+      e.stopPropagation();
+      pushUndo();
+      b.erase.splice(n, 1);
+      if (!b.erase.length) delete b.erase;
+      redraw(); changed(); drawEraseBoxes(); drawSide();
+    };
+    host.__attachDrag(el, r, b.id);
+  });
+}
+
+function addEraseArea(id) {
+  const b = blocks.find((x) => x.id === id);
+  if (!b) return;
+  pushUndo();
+  const W = srcImg.naturalWidth, H = srcImg.naturalHeight;
+  const w = Math.max(20, Math.round(b.w * 0.6)), h = Math.max(20, Math.round(b.h * 0.5));
+  // Start just below the main box (or above it when there is no room): drag it into place.
+  const y = b.y + b.h + h <= H ? b.y + b.h : Math.max(0, b.y - h);
+  (b.erase ||= []).push({ x: Math.max(0, Math.min(W - w, b.x)), y, w, h });
+  selId = id;
+  redraw(); changed(); drawEraseBoxes(); drawSide();
+  selectBlock(id, { scrollBox: false });
 }
 
 // ---------- side panel ----------
@@ -556,6 +608,7 @@ function drawSide() {
         ตัวอักษร <input type="color" data-f="color" value="${b.color || '#111111'}">
         พื้น <input type="color" data-f="bg" value="${b.bg || '#ffffff'}">
         <button data-reset title="ใช้สีอัตโนมัติ">↺</button>
+        <button data-erase title="เพิ่มพื้นที่ลบอีกก้อน สำหรับกรอบที่ไม่เป็นสี่เหลี่ยม (รูปตัว L) หรือข้อความที่แยกเป็นหลายส่วน">＋ พื้นที่ลบ${b.erase?.length ? ` (${b.erase.length})` : ''}</button>
         <button data-retr title="แปลใหม่เฉพาะกล่องนี้ (เรียก AI หนึ่งครั้ง ราคาถูกกว่าแปลทั้งรูป)">↻ แปลใหม่</button>
         <span style="flex:1"></span><button class="danger" data-del>ลบ</button>
       </div>
@@ -580,7 +633,8 @@ function drawSide() {
         changed();
       });
     });
-    el.querySelector('[data-reset]').onclick = () => { pushUndo(); b.bg = null; b.color = ''; redraw(); changed(); drawSide(); };
+    el.querySelector('[data-erase]').onclick = () => addEraseArea(b.id);
+    el.querySelector('[data-reset]').onclick = () => { pushUndo(); b.bg = null; b.color = ''; (b.erase || []).forEach((r) => (r.bg = null)); redraw(); changed(); drawSide(); };
     el.querySelector('[data-retr]').onclick = (e) => retranslateBlock(b.id, e.currentTarget);
     el.querySelector('[data-del]').onclick = () => { deleteBlock(b.id); };
   });
@@ -889,7 +943,9 @@ function redo() {
 // Select a block; optionally scroll the canvas to it, scroll the side list to its
 // text, and/or put the cursor in its text box.
 function selectBlock(id, { scrollBox = true, scrollSide = true, focus = false } = {}) {
+  const was = selId;
   selId = id;
+  if (was !== id) drawEraseBoxes();
   document.querySelectorAll('#side .blk').forEach((o) => o.classList.toggle('sel', Number(o.dataset.id) === id));
   document.querySelectorAll('#boxes .box').forEach((o) => o.classList.toggle('sel', Number(o.dataset.id) === id));
   const box = document.querySelector(`#boxes .box[data-id="${id}"]`);

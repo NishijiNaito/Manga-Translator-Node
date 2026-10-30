@@ -40,7 +40,7 @@ Browser settings live in `localStorage["mt-settings"]`: `provider key model lang
 
 Data model (`project.json`): `{ id, sourceUrl, title, createdAt, glossary, usage{requests,prompt_tokens,
 completion_tokens,cost,unpriced,estimated}, images[] }`; image = `{ index, url, width, height, status
-(new|translated|edited|done), hasResult, skipped, keep, blocks[] }`; block = `{ id, x, y, w, h, text, source?,
+(new|translated|edited|done), hasResult, skipped, keep, blocks[] }`; block = `{ id, x, y, w, h, text, erase?[{x,y,w,h,bg?}], source?,
 fontSize?, color?, bg? }`. **`index` is the position among ALL `<img>` in the DOM**, not among kept images.
 
 `skipped` = irrelevant image (ad/logo), left out of everything. `keep` = "keep original": not translated or swapped,
@@ -58,6 +58,11 @@ API: `PUT .../images/:i/keep` {keep}, `POST /api/projects` (url | html | extensi
   last field: the lenient parser (for near-valid JSON) takes the last quoted string as the text.
 - **Output cap**: Gemini → the model's own `outputTokenLimit` (asked from the API, cached); OpenRouter → none sent.
   `MAX_OUTPUT_TOKENS` forces a value. `temperature` defaults to 0 (+ seed) so the box count doesn't wander.
+- **L-shaped / split bubbles**: one block, one translation. `x,y,w,h` is where the Thai text is laid out; `erase[]` are EXTRA
+  rectangles that are only painted over (own median colour each). The model may return `"parts":[[ymin,xmin,ymax,xmax],..]`
+  (after `box`, before `source`/`text`; `text` stays last) and `lib/llm.js` turns it into `erase`. In the editor the selected
+  block shows them as dashed red boxes (drag/resize/✕); button "＋ พื้นที่ลบ" adds one. Whether the real model emits `parts`
+  sensibly is UNVERIFIED (never called the real API); the manual editing is the fallback. Region re-translate ignores parts.
 - **Slicing is optional, default OFF** (user asked for whole-image requests). When on: slices overlap ~12% and
   are deduped by overlap ratio. Slices run in parallel (`SLICE_CONCURRENCY`, default 3); 429/5xx retry with backoff.
 - **Sweep** ("หาข้อความที่ตกหล่น") tells the model which boxes exist and asks only for missed ones.
@@ -80,7 +85,7 @@ API: `PUT .../images/:i/keep` {keep}, `POST /api/projects` (url | html | extensi
 `npm test` drives the real server with the real editor in headless Chrome, and the real extension in Edge. Only the
 Gemini endpoint is stubbed (global `fetch` intercepts `generativelanguage`), so no key is needed. Needs Chrome, Edge
 and Python (zip verification); override locations with `CHROME_PATH` / `EDGE_PATH`. Branded Chrome 137+ ignores
-`--load-extension`, which is why the extension test uses Edge. Ports used: 3077-3081 and 8093-8098.
+`--load-extension`, which is why the extension test uses Edge. Ports used: 3077-3082 and 8093-8099.
 
 ## Verified vs NOT verified
 
