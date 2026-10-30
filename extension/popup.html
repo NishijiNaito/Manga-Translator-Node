@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family: system-ui, sans-serif; width: 260px; padding: 14px; margin: 0; font-size: 13px; }
+  h3 { margin: 0 0 10px; font-size: 15px; }
+  label { display: block; margin-bottom: 4px; color: #555; }
+  input { width: 100%; padding: 5px; margin-bottom: 12px; box-sizing: border-box; }
+  button { width: 100%; padding: 9px; margin-bottom: 8px; border: 0; border-radius: 5px; cursor: pointer; font-weight: 600; background: #4CAF50; color: #fff; }
+  button.alt { background: #eee; color: #333; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { min-height: 32px; white-space: pre-line; color: #555; font-size: 12px; }
+  #status.err { color: #c62828; } #status.ok { color: #2e7d32; }
+</style>
+</head>
+<body>
+  <h3>📖 Manga Translator</h3>
+  <label for="server">Server</label>
+  <input id="server" type="text" placeholder="http://127.0.0.1:3000">
+  <label style="display:flex;gap:6px;align-items:flex-start;margin-bottom:12px;color:#333">
+    <input id="auto" type="checkbox" style="width:auto;margin:3px 0 0">
+    <span>สลับรูปอัตโนมัติเมื่อเปิดหน้าที่เคยแปลแล้ว<br><small style="color:#888">ส่ง URL ของทุกหน้าที่เปิดไปถามเซิร์ฟเวอร์ของคุณ</small></span>
+  </label>
+  <button id="send">① ส่งรูปในหน้านี้ไปแปล/แก้ไข</button>
+  <button id="swap">② สลับเป็นรูปที่แปลแล้ว</button>
+  <button id="restore" class="alt">คืนรูปเดิม</button>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

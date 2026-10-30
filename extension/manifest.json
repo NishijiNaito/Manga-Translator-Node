@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Manga Translator (Node)",
+  "version": "1.0",
+  "description": "Send the images on this page to your Manga Translator server, edit the text online, then swap the translated images back into the page.",
+  "permissions": ["activeTab", "scripting", "storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "action": { "default_popup": "popup.html" },
+  "background": { "service_worker": "background.js" }
+}

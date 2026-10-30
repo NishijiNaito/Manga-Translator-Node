@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manga Translator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#14161a; --panel:#1d2026; --line:#2e333c; --text:#e6e8eb; --muted:#8b93a1; --accent:#5b9dff; --ok:#3ecf8e; --bad:#ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui, "Noto Sans Thai", sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:10; }
+  header h1 { font-size:16px; margin:0; cursor:pointer; }
+  header .sp { flex:1; }
+  button, input, select, textarea { font:inherit; color:inherit; background:#262a32; border:1px solid var(--line); border-radius:6px; padding:6px 10px; }
+  button { cursor:pointer; } button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#06101f; font-weight:600; }
+  button.danger:hover { border-color:var(--bad); color:var(--bad); }
+  button:disabled { opacity:.5; cursor:default; }
+  .wrap { max-width:900px; margin:24px auto; padding:0 16px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .card h2 { margin:0 0 10px; font-size:15px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .row > input[type=text], .row > input[type=url] { flex:1; min-width:200px; }
+  textarea { width:100%; resize:vertical; }
+  .muted { color:var(--muted); }
+  table { width:100%; border-collapse:collapse; } td { padding:8px 6px; border-top:1px solid var(--line); }
+  a { color:var(--accent); }
+  #toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#000c; padding:8px 14px; border-radius:8px; display:none; z-index:50; max-width:90vw; }
+  #toast.err { background:#5a1d1d; }
+
+  /* editor */
+  .editor { display:grid; grid-template-columns:150px 1fr 320px; height:calc(100vh - 53px); }
+  .col { overflow:auto; border-right:1px solid var(--line); }
+  .col.right { border-right:0; border-left:1px solid var(--line); padding:12px; background:var(--panel); }
+  .thumb { display:block; padding:6px; border-bottom:1px solid var(--line); cursor:pointer; position:relative; }
+  .thumb.sel { background:#2a3140; }
+  .thumb img { width:100%; display:block; border-radius:4px; max-height:160px; object-fit:cover; object-position:top; }
+  .thumb .badge { position:absolute; top:10px; left:10px; font-size:11px; padding:0 6px; border-radius:10px; background:#000b; }
+  .thumb.skipped img { opacity:.3; filter:grayscale(1); }
+  .thumb .x { position:absolute; top:8px; right:8px; padding:0 6px; font-size:12px; line-height:20px; opacity:0; background:#000b; }
+  .thumb:hover .x, .thumb.skipped .x { opacity:1; }
+  .badge.done { color:var(--ok); } .badge.translated, .badge.edited { color:#ffd166; }
+  .stage { padding:14px; overflow:auto; background:#0e1013; }
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center; }
+  .statusbar { display:flex; gap:16px; flex-wrap:wrap; justify-content:space-between; font-size:12px; padding:6px 10px; margin-bottom:10px; background:var(--panel); border:1px solid var(--line); border-radius:6px; }
+  #usageline { color:var(--muted); }
+  .canvaswrap { position:relative; display:inline-block; line-height:0; }
+  canvas { display:block; background:#fff; }
+  .box { position:absolute; border:2px solid #5b9dffcc; cursor:move; touch-action:none; }
+  .box.flash { animation: flash .9s ease-out; }
+  @keyframes flash { 0% { box-shadow:0 0 0 0 #ffd166; background:#ffd16688; } 100% { box-shadow:0 0 0 14px #ffd16600; background:#ffd16622; } }
+  kbd { background:#262a32; border:1px solid var(--line); border-radius:4px; padding:0 5px; font:12px/1.6 ui-monospace, monospace; }
+  .box.sel { border-color:#ffd166; background:#ffd16622; }
+  .box .h { position:absolute; right:-6px; bottom:-6px; width:12px; height:12px; background:#ffd166; cursor:nwse-resize; border-radius:3px; }
+  .blk { border:1px solid var(--line); border-radius:8px; padding:8px; margin-bottom:8px; }
+  .blk.sel { border-color:#ffd166; }
+  .blk .f { display:flex; gap:6px; align-items:center; margin-top:6px; font-size:12px; }
+  .blk input[type=number] { width:64px; } .blk input[type=color] { width:32px; height:26px; padding:0; }
+  .src { font-size:12px; color:var(--muted); margin-top:6px; }
+  @media (max-width:900px){ .editor{grid-template-columns:90px 1fr;} .col.right{grid-column:1/-1; border-left:0; border-top:1px solid var(--line);} .editor{height:auto;} }
+</style>
+</head>
+<body>
+<header>
+  <h1 onclick="location.hash='#/'">📖 Manga Translator</h1>
+  <span id="crumb" class="muted"></span>
+  <span class="sp"></span>
+  <button id="btnSettings">⚙️ ตั้งค่า</button>
+</header>
+<div id="app"></div>
+<div id="toast"></div>
+
+<dialog id="dlgSettings" style="background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:10px;min-width:min(420px,90vw)">
+  <h3 style="margin-top:0">ตั้งค่า AI</h3>
+  <p class="muted">เก็บใน browser ของคุณเท่านั้น และส่งไปกับคำขอแปลเท่านั้น (เว้นว่างได้ถ้าตั้งใน .env ของเซิร์ฟเวอร์แล้ว)</p>
+  <p>ผู้ให้บริการ<br><select id="setProvider"><option value="gemini">Google AI Studio (Gemini)</option><option value="openrouter">OpenRouter</option></select></p>
+  <p>API key<br><input id="setKey" type="password" style="width:100%" placeholder="AIza... (Gemini) / sk-or-... (OpenRouter)"></p>
+  <p>Model (ต้องอ่านรูปได้)<br>
+    <span class="row" style="flex-wrap:nowrap"><input id="setModel" type="text" list="modelList" style="flex:1;min-width:0" placeholder="เว้นว่าง = gemini-2.5-flash" autocomplete="off">
+    <button id="setLoadModels" type="button">โหลดรายการ</button></span>
+    <datalist id="modelList"></datalist>
+    <span id="modelHint" class="muted" style="font-size:12px"></span></p>
+  <p>ภาษาต้นฉบับ<br><select id="setLang"><option value="auto">อัตโนมัติ (แนะนำ)</option><option value="ja">ญี่ปุ่น</option><option value="en">อังกฤษ</option><option value="ko">เกาหลี</option><option value="zh">จีน</option></select></p>
+  <p><label><input id="setSource" type="checkbox" style="width:auto"> แสดงข้อความต้นฉบับข้างคำแปล</label><br>
+    <span class="muted">ให้ AI ส่งข้อความต้นฉบับมาด้วย ใช้ตรวจว่าแปลผิดไหม (ใช้ output token เพิ่มราว 30–50%) มีผลกับการแปลครั้งต่อไป</span></p>
+  <p><label><input id="setAuto" type="checkbox" style="width:auto"> ใช้รูปอัตโนมัติหลังแก้ไข</label><br>
+    <span class="muted">render รูปให้เองเมื่อหยุดแก้ไข 3 วินาที หรือเมื่อเปลี่ยนไปรูปอื่น จะได้ไม่ลืมกด “ใช้รูปนี้”</span></p>
+  <p><label><input id="setSlice" type="checkbox" style="width:auto"> หั่นรูปยาวเป็นช่วงก่อนส่ง</label><br>
+    <span class="muted">ปิด = ส่งทั้งรูปในคำขอเดียว (ประหยัดกว่า) เปิด = ละเอียดกว่าสำหรับ webtoon ที่ยาวมาก</span></p>
+  <p>แปลพร้อมกัน (จำนวนรูปต่อครั้งเมื่อกด “แปลทั้งหมด”)<br><input id="setParallel" type="number" min="1" max="8" style="width:80px"><br>
+    <span class="muted">มากขึ้น = เร็วขึ้น แต่ free tier ของ Google จำกัดจำนวนคำขอต่อนาที ถ้าเจอ error 429 ให้ลดลง</span></p>
+  <div class="row" style="justify-content:flex-end"><button id="setCancel">ปิด</button><button id="setSave" class="primary">บันทึก</button></div>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
