@@ -40,10 +40,13 @@ Browser settings live in `localStorage["mt-settings"]`: `provider key model lang
 
 Data model (`project.json`): `{ id, sourceUrl, title, createdAt, glossary, usage{requests,prompt_tokens,
 completion_tokens,cost,unpriced,estimated}, images[] }`; image = `{ index, url, width, height, status
-(new|translated|edited|done), hasResult, skipped, blocks[] }`; block = `{ id, x, y, w, h, text, source?,
+(new|translated|edited|done), hasResult, skipped, keep, blocks[] }`; block = `{ id, x, y, w, h, text, source?,
 fontSize?, color?, bg? }`. **`index` is the position among ALL `<img>` in the DOM**, not among kept images.
 
-API: `POST /api/projects` (url | html | extension's `{pageUrl,title,images}`), `GET/DELETE /api/projects[/:id]`,
+`skipped` = irrelevant image (ad/logo), left out of everything. `keep` = "keep original": not translated or swapped,
+but still a page in the export (original bytes, wins over any result) and the reader; translating/editing it clears `keep`.
+
+API: `PUT .../images/:i/keep` {keep}, `POST /api/projects` (url | html | extension's `{pageUrl,title,images}`), `GET/DELETE /api/projects[/:id]`,
 `PUT .../images/:i/source` (extension uploads bytes the server couldn't fetch), `POST .../translate`
 (`sweep`, `slice`, `withSource`), `POST .../retranslate-block`, `PUT .../blocks|skip|result`, `DELETE .../result`,
 `PUT /api/projects/:id/glossary`, `GET /api/projects/:id/export?format=zip|cbz&originals=0|1`,

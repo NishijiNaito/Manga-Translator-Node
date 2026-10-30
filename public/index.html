@@ -50,7 +50,9 @@
   .thumb .badge { position:absolute; top:10px; left:10px; font-size:11px; padding:0 6px; border-radius:10px; background:#000b; }
   .thumb.skipped img { opacity:.3; filter:grayscale(1); }
   .thumb .x { position:absolute; top:8px; right:8px; padding:0 6px; font-size:12px; line-height:20px; opacity:0; background:#000b; }
-  .thumb:hover .x, .thumb.skipped .x { opacity:1; }
+  .thumb .x.k { right:34px; }
+  .thumb.keep img { outline:2px solid #5b9dff88; outline-offset:-2px; }
+  .thumb:hover .x, .thumb.skipped .x, .thumb.keep .x.k { opacity:1; }
   .badge.done { color:var(--ok); } .badge.translated, .badge.edited { color:#ffd166; }
   .stage { padding:14px; overflow:auto; background:#0e1013; }
   .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center; }

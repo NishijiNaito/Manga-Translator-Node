@@ -204,7 +204,7 @@ app.get('/api/projects', wrap(async (req, res) => {
   for (const id of ids) {
     const p = await loadProject(id);
     if (p) list.push({ id, title: p.title, sourceUrl: p.sourceUrl, createdAt: p.createdAt,
-      images: p.images.filter((i) => !i.skipped).length, done: p.images.filter((i) => i.hasResult && !i.skipped).length });
+      images: p.images.filter((i) => !i.skipped).length, done: p.images.filter((i) => (i.hasResult || i.keep) && !i.skipped).length });
   }
   list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   res.json(list);
@@ -267,7 +267,7 @@ app.post('/api/projects/:id/images/:i/translate', wrap(async (req, res) => {
   });
   let nextId = Math.max(0, ...kept.map((b) => b.id || 0)) + 1;
   const blocks = [...kept, ...out.blocks.map((b) => ({ id: nextId++, ...b }))];
-  const img = await updateImage(p.id, index, { blocks, status: 'translated', hasResult: false });
+  const img = await updateImage(p.id, index, { blocks, status: 'translated', hasResult: false, keep: false });
   await fs.rm(path.join(projectDir(p.id), 'result', `${index}.png`), { force: true });
   res.json({ image: img, usage: out.usage, total: await recordUsage(p.id, out.usage) });
 }));
@@ -292,6 +292,13 @@ app.post('/api/projects/:id/images/:i/retranslate-block', wrap(async (req, res) 
   res.json({ text: out.text, source: out.source, usage: out.usage, total: await recordUsage(p.id, out.usage) });
 }));
 
+// Keep an image as the untouched original: not translated, but still a page of the
+// chapter (included in the export and the reader; never swapped).
+app.put('/api/projects/:id/images/:i/keep', wrap(async (req, res) => {
+  const p = await needProject(req);
+  res.json(await updateImage(p.id, getIndex(req), { keep: !!req.body?.keep }));
+}));
+
 // Mark an image as irrelevant (ad, banner, logo…): it is left alone everywhere.
 app.put('/api/projects/:id/images/:i/skip', wrap(async (req, res) => {
   const p = await needProject(req);
@@ -302,7 +309,7 @@ app.put('/api/projects/:id/images/:i/blocks', wrap(async (req, res) => {
   const p = await needProject(req);
   const blocks = req.body?.blocks;
   if (!Array.isArray(blocks)) throw Object.assign(new Error('"blocks" must be an array'), { status: 400 });
-  const img = await updateImage(p.id, getIndex(req), { blocks, status: 'edited', hasResult: false });
+  const img = await updateImage(p.id, getIndex(req), { blocks, status: 'edited', hasResult: false, keep: false });
   res.json(img);
 }));
 
@@ -341,7 +348,7 @@ app.get('/files/:id/result/:i.png', wrap(async (req, res) => {
 // ---------- replace images back ----------
 function replacementMap(p, origin) {
   const map = {};
-  for (const i of p.images) if (i.hasResult && !i.skipped) map[i.index] = `${origin}/files/${p.id}/result/${i.index}.png`;
+  for (const i of p.images) if (i.hasResult && !i.skipped && !i.keep) map[i.index] = `${origin}/files/${p.id}/result/${i.index}.png`;
   return map;
 }
 
@@ -360,20 +367,20 @@ app.put('/api/projects/:id/glossary', wrap(async (req, res) => {
 }));
 
 // Download the translated pages as .zip / .cbz, numbered in page order. Skipped
-// images are left out; ?originals=1 also includes the untouched original for any
+// images are left out; images marked "keep original" are always included as the original; ?originals=1 also includes the untouched original for any
 // page that has no translation yet, so the numbering still lines up with the chapter.
 app.get('/api/projects/:id/export', wrap(async (req, res) => {
   const p = await needProject(req);
   const includeOrig = req.query.originals === '1';
   const ext = req.query.format === 'cbz' ? 'cbz' : 'zip';
 
-  const picked = p.images.filter((i) => !i.skipped && (i.hasResult || includeOrig));
+  const picked = p.images.filter((i) => !i.skipped && (i.keep || i.hasResult || includeOrig));
   if (!picked.length) throw Object.assign(new Error('ยังไม่มีรูปที่แปลแล้วให้ส่งออก'), { status: 400 });
 
   const items = [];
   for (const [n, i] of picked.entries()) {
     const num = String(n + 1).padStart(3, '0');
-    if (i.hasResult) {
+    if (i.hasResult && !i.keep) {
       items.push({ name: `${num}.png`, load: () => fs.readFile(path.join(projectDir(p.id), 'result', `${i.index}.png`)) });
     } else {
       const buf = await fs.readFile(path.join(projectDir(p.id), 'orig', String(i.index)));
@@ -409,7 +416,7 @@ app.get('/api/projects/:id/replacements', wrap(async (req, res) => {
   const p = await needProject(req);
   const origin = `${req.protocol}://${req.get('host')}`;
   res.set('Access-Control-Allow-Origin', '*');
-  res.json(p.images.filter((i) => i.hasResult && !i.skipped).map((i) => ({
+  res.json(p.images.filter((i) => i.hasResult && !i.skipped && !i.keep).map((i) => ({
     index: i.index, original: i.url, translated: `${origin}/files/${p.id}/result/${i.index}.png`,
   })));
 }));

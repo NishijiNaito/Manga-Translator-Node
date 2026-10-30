@@ -168,19 +168,20 @@ async function openReader(id) {
   const prefs = { width: 720, orig: false, ...(settings.get().reader || {}) };
   const save = () => settings.set({ ...settings.get(), reader: prefs });
   const list = P.images.filter((i) => !i.skipped);
-  const left = list.filter((i) => !i.hasResult).length;
+  const useResult = (i) => i.hasResult && !i.keep;
+  const left = list.filter((i) => !i.hasResult && !i.keep).length;
   $app.innerHTML = `
   <div class="readbar">
     <a href="#/p/${P.id}">← กลับไปแก้ไข</a>
     <label>ความกว้าง <input type="range" id="rdW" min="320" max="1600" step="20"></label>
     <label><input type="checkbox" id="rdOrig" style="width:auto"> ดูต้นฉบับ</label>
-    <span class="muted">${list.length - left}/${list.length} รูปแปลแล้ว${left ? ' · รูปที่ยังไม่แปลแสดงเป็นต้นฉบับ (มีขอบแดง)' : ''}</span>
+    <span class="muted">${list.filter(useResult).length}/${list.length} รูปแปลแล้ว${list.some((i) => i.keep) ? ` · คงต้นฉบับ ${list.filter((i) => i.keep).length}` : ''}${left ? ' · รูปที่ยังไม่แปลแสดงเป็นต้นฉบับ (มีขอบแดง)' : ''}</span>
     <span id="rdPos" class="muted" style="margin-left:auto"></span>
   </div>
   <div id="strip" class="strip"></div>`;
   const strip = $('strip');
-  const url = (i) => (i.hasResult && !prefs.orig ? `/files/${P.id}/result/${i.index}.png?v=${i.v || 0}` : `/files/${P.id}/orig/${i.index}`);
-  strip.innerHTML = list.length ? list.map((i) => `<div class="pg ${i.hasResult ? '' : 'raw'}" data-i="${i.index}">
+  const url = (i) => (useResult(i) && !prefs.orig ? `/files/${P.id}/result/${i.index}.png?v=${i.v || 0}` : `/files/${P.id}/orig/${i.index}`);
+  strip.innerHTML = list.length ? list.map((i) => `<div class="pg ${useResult(i) || i.keep ? '' : 'raw'}" data-i="${i.index}">
       <img loading="lazy" src="${url(i)}" alt="">
       <a class="pgedit" href="#/p/${P.id}/${i.index}" title="แก้ไขรูปนี้">✎ #${i.index}</a></div>`).join('')
     : '<p class="muted" style="padding:20px">ไม่มีรูปให้อ่าน</p>';
@@ -250,16 +251,42 @@ const $ = (id) => document.getElementById(id);
 
 function drawThumbs() {
   $('thumbs').innerHTML = P.images.map((i) => `
-    <a class="thumb ${cur && cur.index === i.index ? 'sel' : ''} ${i.skipped ? 'skipped' : ''}" data-i="${i.index}">
-      <img loading="lazy" src="${i.hasResult ? `/files/${P.id}/result/${i.index}.png?v=${i.v || 0}` : `/files/${P.id}/orig/${i.index}`}">
-      <span class="badge ${i.status}">${i.skipped ? 'ข้าม' : { new: 'ใหม่', translated: 'แปลแล้ว', edited: 'แก้ไข', done: '✓ เสร็จ' }[i.status]}</span>
+    <a class="thumb ${cur && cur.index === i.index ? 'sel' : ''} ${i.skipped ? 'skipped' : ''} ${i.keep ? 'keep' : ''}" data-i="${i.index}">
+      <img loading="lazy" src="${i.hasResult && !i.keep ? `/files/${P.id}/result/${i.index}.png?v=${i.v || 0}` : `/files/${P.id}/orig/${i.index}`}">
+      <span class="badge ${i.status}">${i.skipped ? 'ข้าม' : i.keep ? 'คงต้นฉบับ' : { new: 'ใหม่', translated: 'แปลแล้ว', edited: 'แก้ไข', done: '✓ เสร็จ' }[i.status]}</span>
+      <button class="x k" data-keep="${i.index}" title="${i.keep ? 'ยกเลิกการคงต้นฉบับ' : 'คงต้นฉบับ (ไม่ต้องแก้ แต่ยังรวมในการส่งออก/โหมดอ่าน)'}">${i.keep ? '↩' : '📌'}</button>
       <button class="x" data-skip="${i.index}" title="${i.skipped ? 'ยกเลิกการข้าม' : 'ข้ามรูปนี้ (ไม่เกี่ยวข้อง)'}">${i.skipped ? '↩' : '✕'}</button>
     </a>`).join('');
   $('thumbs').querySelectorAll('.thumb').forEach((t) => (t.onclick = () => selectImage(Number(t.dataset.i))));
+  $('thumbs').querySelectorAll('[data-keep]').forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    toggleKeep(Number(b.dataset.keep));
+  }));
   $('thumbs').querySelectorAll('[data-skip]').forEach((b) => (b.onclick = (e) => {
     e.stopPropagation();
     toggleSkip(Number(b.dataset.skip));
   }));
+}
+
+async function toggleKeep(index) {
+  const rec = P.images.find((i) => i.index === index);
+  const keep = !rec.keep;
+  try {
+    // A pending edit on this image would otherwise re-render it later and undo the choice.
+    if (keep && cur && cur.index === index) { clearTimeout(autoTimer); dirtyIdx.delete(index); }
+    await api(`/api/projects/${P.id}/images/${index}/keep`, { method: 'PUT', json: { keep } });
+    rec.keep = keep;
+    drawThumbs();
+    renderKeepButton();
+    toast(keep ? `คงรูป #${index} เป็นต้นฉบับ — ไม่ถูกแปลหรือสลับ แต่ยังอยู่ในการส่งออก` : `ยกเลิกการคงต้นฉบับรูป #${index}`);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
+function renderKeepButton() {
+  const b = document.getElementById('bKeep');
+  if (b && cur) b.textContent = cur.keep ? '↩ ยกเลิกคงต้นฉบับ' : '📌 คงต้นฉบับ';
 }
 
 async function toggleSkip(index) {
@@ -282,6 +309,7 @@ function renderToolbar() {
     <button id="bAll">แปลทั้งหมด</button>
     <button id="bApply">✅ ใช้รูปนี้</button>
     <button id="bApplyAll">✅ ใช้ทั้งหมด</button>
+    <button id="bKeep" title="ไม่ต้องแก้รูปนี้: คงต้นฉบับไว้ แต่ยังรวมในการส่งออกและโหมดอ่าน"></button>
     <button id="bOrig">👁 ดูต้นฉบับ</button>
     <button id="bAdd">＋ เพิ่มกล่องข้อความ</button>
     <button id="bUndo" title="ย้อนกลับ (Ctrl+Z)">↶</button>
@@ -297,6 +325,7 @@ function renderToolbar() {
   bAll.onclick = translateAll;
   bApply.onclick = () => applyImage(cur.index, true);
   bApplyAll.onclick = applyAll;
+  bKeep.onclick = () => cur && toggleKeep(cur.index);
   bOrig.onmousedown = () => { showOrig = true; redraw(); };
   window.addEventListener('mouseup', () => { if (showOrig) { showOrig = false; redraw(); } });
   bAdd.onclick = addBlock;
@@ -307,6 +336,7 @@ function renderToolbar() {
   bExport.onclick = openExport;
   updateUndoButtons();
   updateGlossButton();
+  renderKeepButton();
 }
 
 const ensureFont = () =>
@@ -725,7 +755,7 @@ function estimateCost(n) {
 }
 
 async function translateAll() {
-  const todo = P.images.filter((i) => i.status === 'new' && !i.skipped);
+  const todo = P.images.filter((i) => i.status === 'new' && !i.skipped && !i.keep);
   if (!todo.length) return toast('ไม่มีรูปที่ยังไม่ได้แปล');
   if (todo.length > 1 && !confirm(`แปล ${todo.length} รูป?\n\n${estimateCost(todo.length)}`)) return;
   bAll.disabled = true;
@@ -795,7 +825,7 @@ async function applyImage(index, notify, snap) {
 }
 
 async function applyAll() {
-  const todo = P.images.filter((i) => !i.skipped && (i.blocks?.length || (i === cur && blocks.length)) && !i.hasResult);
+  const todo = P.images.filter((i) => !i.skipped && !i.keep && (i.blocks?.length || (i === cur && blocks.length)) && !i.hasResult);
   if (!todo.length) return toast('ไม่มีรูปที่รอใช้');
   bApplyAll.disabled = true;
   try {
@@ -974,14 +1004,15 @@ document.getElementById('glossSave').onclick = async () => {
 
 function openExport() {
   const live = P.images.filter((i) => !i.skipped);
-  const done = live.filter((i) => i.hasResult).length;
-  document.getElementById('expInfo').textContent = `แปลแล้ว ${done} จาก ${live.length} รูป (ไม่นับรูปที่ข้าม)`;
+  const kept = live.filter((i) => i.keep).length;
+  const done = live.filter((i) => i.hasResult && !i.keep).length;
+  document.getElementById('expInfo').textContent = `แปลแล้ว ${done} จาก ${live.length} รูป${kept ? ` · คงต้นฉบับ ${kept} รูป (รวมในไฟล์เสมอ)` : ''} (ไม่นับรูปที่ข้าม)`;
   document.getElementById('dlgExport').showModal();
 }
 document.getElementById('expClose').onclick = () => document.getElementById('dlgExport').close();
 document.getElementById('expGo').onclick = async () => {
   const withOrig = document.getElementById('expOrig').checked;
-  const done = P.images.filter((i) => !i.skipped && i.hasResult).length;
+  const done = P.images.filter((i) => !i.skipped && (i.keep || i.hasResult)).length;
   // Check here: a server error would replace the page with raw JSON.
   if (!done && !withOrig) return toast('ยังไม่มีรูปที่แปลแล้ว กด “ใช้รูปนี้” ก่อน หรือติ๊กรวมรูปต้นฉบับ', true);
   try {
