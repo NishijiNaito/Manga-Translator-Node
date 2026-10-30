@@ -89,8 +89,10 @@ setSave.onclick = () => {
 
 // ---------- routing ----------
 function route() {
-  const m = location.hash.match(/^#\/p\/([a-f0-9]{12})$/);
-  if (m) return openEditor(m[1]);
+  const r = location.hash.match(/^#\/p\/([a-f0-9]{12})\/read$/);
+  if (r) return openReader(r[1]);
+  const m = location.hash.match(/^#\/p\/([a-f0-9]{12})(?:\/(\d+))?$/);
+  if (m) return openEditor(m[1], m[2] === undefined ? undefined : Number(m[2]));
   return renderHome();
 }
 window.addEventListener('hashchange', route);
@@ -138,7 +140,7 @@ async function renderHome() {
       ? `<table>${list.map((p) => `<tr>
           <td><a href="#/p/${p.id}">${esc(p.title)}</a><div class="muted" style="font-size:12px">${esc(p.sourceUrl)}</div></td>
           <td>${p.done}/${p.images} รูป</td>
-          <td style="text-align:right">${p.done ? `<a href="/view/${p.id}" target="_blank">ดูหน้าที่แปลแล้ว</a> ` : ''}
+          <td style="text-align:right">${p.done ? `<a href="#/p/${p.id}/read">อ่าน</a> <a href="/view/${p.id}" target="_blank">ดูหน้าที่แปลแล้ว</a> ` : ''}
           <button class="danger" data-del="${p.id}">ลบ</button></td></tr>`).join('')}</table>`
       : 'ยังไม่มีโปรเจ็ค';
     document.querySelectorAll('[data-del]').forEach((b) => (b.onclick = async () => {
@@ -149,6 +151,55 @@ async function renderHome() {
   } catch (e) {
     document.getElementById('list').textContent = e.message;
   }
+}
+
+// ============================================================
+// Reader: all images as one continuous vertical strip
+// ============================================================
+async function openReader(id) {
+  $app.innerHTML = '<div class="wrap muted">กำลังโหลด…</div>';
+  try {
+    P = await api(`/api/projects/${id}`);
+  } catch (e) {
+    $app.innerHTML = `<div class="wrap">${esc(e.message)}</div>`;
+    return;
+  }
+  $crumb.textContent = P.title;
+  const prefs = { width: 720, orig: false, ...(settings.get().reader || {}) };
+  const save = () => settings.set({ ...settings.get(), reader: prefs });
+  const list = P.images.filter((i) => !i.skipped);
+  const left = list.filter((i) => !i.hasResult).length;
+  $app.innerHTML = `
+  <div class="readbar">
+    <a href="#/p/${P.id}">← กลับไปแก้ไข</a>
+    <label>ความกว้าง <input type="range" id="rdW" min="320" max="1600" step="20"></label>
+    <label><input type="checkbox" id="rdOrig" style="width:auto"> ดูต้นฉบับ</label>
+    <span class="muted">${list.length - left}/${list.length} รูปแปลแล้ว${left ? ' · รูปที่ยังไม่แปลแสดงเป็นต้นฉบับ (มีขอบแดง)' : ''}</span>
+    <span id="rdPos" class="muted" style="margin-left:auto"></span>
+  </div>
+  <div id="strip" class="strip"></div>`;
+  const strip = $('strip');
+  const url = (i) => (i.hasResult && !prefs.orig ? `/files/${P.id}/result/${i.index}.png?v=${i.v || 0}` : `/files/${P.id}/orig/${i.index}`);
+  strip.innerHTML = list.length ? list.map((i) => `<div class="pg ${i.hasResult ? '' : 'raw'}" data-i="${i.index}">
+      <img loading="lazy" src="${url(i)}" alt="">
+      <a class="pgedit" href="#/p/${P.id}/${i.index}" title="แก้ไขรูปนี้">✎ #${i.index}</a></div>`).join('')
+    : '<p class="muted" style="padding:20px">ไม่มีรูปให้อ่าน</p>';
+  const setW = () => { strip.style.width = `min(100%, ${prefs.width}px)`; };
+  rdW.value = prefs.width; rdOrig.checked = prefs.orig; setW();
+  rdW.oninput = () => { prefs.width = Number(rdW.value); setW(); save(); };
+  rdOrig.onchange = () => {
+    prefs.orig = rdOrig.checked; save();
+    strip.querySelectorAll('.pg').forEach((pg) => { pg.querySelector('img').src = url(list.find((i) => i.index === Number(pg.dataset.i))); });
+  };
+  const upd = () => {
+    const pgs = [...strip.querySelectorAll('.pg')];
+    const n = pgs.filter((pg) => pg.getBoundingClientRect().top < innerHeight / 2).length;
+    $('rdPos') && ($('rdPos').textContent = pgs.length ? `${Math.max(1, n)}/${pgs.length}` : '');
+  };
+  window.addEventListener('scroll', upd, { passive: true });
+  const stop = () => { window.removeEventListener('scroll', upd); window.removeEventListener('hashchange', stop); };
+  window.addEventListener('hashchange', stop);
+  upd();
 }
 
 // ============================================================
@@ -171,7 +222,7 @@ let redoStack = [];
 let lastUndoTag = '';
 let lastUndoAt = 0;
 
-async function openEditor(id) {
+async function openEditor(id, startIndex) {
   $app.innerHTML = '<div class="wrap muted">กำลังโหลด…</div>';
   try {
     P = await api(`/api/projects/${id}`);
@@ -189,7 +240,7 @@ async function openEditor(id) {
   </div>`;
   drawThumbs();
   renderUsage();
-  const first = P.images[0];
+  const first = P.images.find((i) => i.index === startIndex) || P.images[0];
   if (first) selectImage(first.index);
   else $('stage').innerHTML = '<p class="muted">ไม่พบรูปที่ใหญ่พอในหน้านี้</p>';
   renderToolbar();
@@ -239,6 +290,7 @@ function renderToolbar() {
     <button id="bGloss" title="ชื่อตัวละคร/ศัพท์เฉพาะ ที่ต้องแปลให้ตรงกันทุกรูป">📖 Glossary</button>
     <button id="bExport" title="ดาวน์โหลดรูปที่แปลแล้วเป็น ZIP / CBZ">⬇ ส่งออก</button>
     <span class="sp" style="flex:1"></span>
+    <a href="#/p/${P.id}/read">📖 โหมดอ่าน</a>
     <a href="/view/${P.id}" target="_blank">เปิดหน้าที่แปลแล้ว ↗</a>`;
   bTr.onclick = () => translateCurrent(false);
   bSweep.onclick = () => translateCurrent(true);

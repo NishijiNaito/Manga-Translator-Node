@@ -30,6 +30,16 @@
   #toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#000c; padding:8px 14px; border-radius:8px; display:none; z-index:50; max-width:90vw; }
   #toast.err { background:#5a1d1d; }
 
+  /* reader */
+  .readbar { position:sticky; top:53px; z-index:9; display:flex; gap:16px; align-items:center; flex-wrap:wrap; padding:8px 16px; background:var(--panel); border-bottom:1px solid var(--line); font-size:13px; }
+  .readbar input[type=range] { padding:0; vertical-align:middle; }
+  .strip { margin:0 auto; background:#000; }
+  .pg { position:relative; line-height:0; }
+  .pg img { width:100%; display:block; min-height:200px; }
+  .pg.raw { outline:2px solid #ff6b6b66; outline-offset:-2px; }
+  .pgedit { position:absolute; top:8px; right:8px; line-height:1.5; font-size:12px; padding:2px 8px; border-radius:6px; background:#000b; text-decoration:none; opacity:0; }
+  .pg:hover .pgedit { opacity:1; }
+
   /* editor */
   .editor { display:grid; grid-template-columns:150px 1fr 320px; height:calc(100vh - 53px); }
   .col { overflow:auto; border-right:1px solid var(--line); }

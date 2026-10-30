@@ -33,7 +33,7 @@ Browser settings live in `localStorage["mt-settings"]`: `provider key model lang
 | `lib/llm.js` | Providers (Gemini direct, OpenRouter), prompt building, lenient JSON parser, optional slicing + dedupe, `translateImage`, `translateRegion` (one box), retry/backoff, cost estimate, `listModels` |
 | `lib/extract.js` | Find `<img>` in HTML (lazy attrs, srcset), `rewriteHtml` for `/view` |
 | `lib/zip.js` | Own streaming "stored" ZIP writer (no dependency) |
-| `public/app.js` | The whole web UI (home + editor). Sections are commented |
+| `public/app.js` | The whole web UI (home + editor + reader). Sections are commented. Routes: `#/`, `#/p/<id>[/<imageIndex>]` (editor), `#/p/<id>/read` (continuous reader: non-skipped images as one strip, result or original fallback with red outline, width slider + original toggle kept in `mt-settings.reader`) |
 | `extension/` | MV3 extension: `background.js` does the work, `popup.*` is a thin UI |
 | `test/` | Browser tests (puppeteer-core), `run-all.js` runs them |
 | `data/` | Runtime store (git-ignored): `projects/<id>/{project.json, page.html?, orig/<i>, result/<i>.png}` |
@@ -77,7 +77,7 @@ API: `POST /api/projects` (url | html | extension's `{pageUrl,title,images}`), `
 `npm test` drives the real server with the real editor in headless Chrome, and the real extension in Edge. Only the
 Gemini endpoint is stubbed (global `fetch` intercepts `generativelanguage`), so no key is needed. Needs Chrome, Edge
 and Python (zip verification); override locations with `CHROME_PATH` / `EDGE_PATH`. Branded Chrome 137+ ignores
-`--load-extension`, which is why the extension test uses Edge. Ports used: 3077-3080 and 8093-8097.
+`--load-extension`, which is why the extension test uses Edge. Ports used: 3077-3081 and 8093-8098.
 
 ## Verified vs NOT verified
 
@@ -92,7 +92,7 @@ compliance, thinking-token behaviour, real 429 limits are all unverified); insta
 ## Backlog (ideas the user was offered, none started)
 
 Ellipse/rounded boxes and font choice, eraser brush (to fix leftover text on patterned backgrounds), zoom and
-side-by-side compare, continuous reading mode, list of failed images with retry, rename/clean up projects,
+side-by-side compare, list of failed images with retry, rename/clean up projects,
 right-click "translate this image" in the extension.
 
 ## Repo state
