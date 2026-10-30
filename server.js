@@ -8,6 +8,7 @@ const { extractImages, rewriteHtml } = require('./lib/extract');
 const { translateImage, translateRegion, listModels } = require('./lib/llm');
 const { streamZip } = require('./lib/zip');
 const { safeGet, makeAuth, makeLimiter, parseCookies } = require('./lib/security');
+const { createStorage } = require('./lib/storage');
 
 const PORT = Number(process.env.PORT || 3000);
 // Loopback by default: this server fetches arbitrary URLs for you, so don't
@@ -17,6 +18,15 @@ const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data
 const MIN_SIDE = Number(process.env.MIN_IMAGE_SIDE || 150); // skip icons / avatars
 const MAX_BYTES = 30 * 1024 * 1024;
 const UA = 'Mozilla/5.0 (compatible; MangaTranslatorNode/1.0)';
+
+// Where the images live: local disk (default) or an R2 bucket (STORAGE=r2). See lib/storage.js.
+let storage;
+try {
+  storage = createStorage({ dataDir: DATA_DIR });
+} catch (e) {
+  console.error(e.message);
+  process.exit(1);
+}
 
 // ---------- hosted mode ----------
 // APP_SECRET set = the server is meant to be reachable from the internet: login required,
@@ -220,8 +230,7 @@ app.post('/api/projects', wrap(async (req, res) => {
         .map((g) => ({ index: g.index, url: g.url, alt: '' }))
     : extractImages(html, baseUrl || '')).slice(0, MAX_IMAGES);
   const id = crypto.randomBytes(6).toString('hex');
-  await fs.mkdir(path.join(projectDir(id), 'orig'), { recursive: true });
-  await fs.mkdir(path.join(projectDir(id), 'result'), { recursive: true });
+  await storage.init(id);
   if (html) await fs.writeFile(path.join(projectDir(id), 'page.html'), html);
 
   const images = [];
@@ -231,7 +240,7 @@ app.post('/api/projects', wrap(async (req, res) => {
       const buf = await fetchBuffer(f.url, baseUrl);
       const meta = await sharp(buf).metadata();
       if (!meta.width || meta.width < MIN_SIDE || meta.height < MIN_SIDE) return;
-      await fs.writeFile(path.join(projectDir(id), 'orig', String(f.index)), buf);
+      await storage.put(id, 'orig', f.index, buf);
       images.push({
         index: f.index, url: f.url, alt: f.alt,
         width: meta.width, height: meta.height,
@@ -261,7 +270,7 @@ app.put('/api/projects/:id/images/:i/source', express.raw({ type: '*/*', limit: 
   if (!Buffer.isBuffer(req.body) || !req.body.length) throw Object.assign(new Error('Empty body'), { status: 400 });
   const meta = await sharp(req.body).metadata();
   if (!meta.width || meta.width < MIN_SIDE || meta.height < MIN_SIDE) return res.json({ skipped: true });
-  await fs.writeFile(path.join(projectDir(p.id), 'orig', String(index)), req.body);
+  await storage.put(p.id, 'orig', index, req.body);
   await withLock(p.id, async () => {
     const fresh = await loadProject(p.id);
     const rec = { index, url: String(req.query.url || ''), alt: '', width: meta.width, height: meta.height,
@@ -305,8 +314,8 @@ app.get('/api/projects', wrap(async (req, res) => {
 app.get('/api/projects/:id', wrap(async (req, res) => res.json(await needProject(req))));
 
 app.delete('/api/projects/:id', wrap(async (req, res) => {
-  await needProject(req);
-  await fs.rm(projectDir(req.params.id), { recursive: true, force: true });
+  const p = await needProject(req);
+  await storage.removeProject(p.id, p.images.map((i) => i.index));
   res.json({ ok: true });
 }));
 
@@ -347,7 +356,7 @@ app.post('/api/projects/:id/images/:i/translate', spendGuard, wrap(async (req, r
   const p = await needProject(req);
   const index = getIndex(req);
   if (!p.images.some((i) => i.index === index)) throw Object.assign(new Error('Image not found'), { status: 404 });
-  const buf = await fs.readFile(path.join(projectDir(p.id), 'orig', String(index)));
+  const buf = await storage.get(p.id, 'orig', index);
   // sweep: keep the blocks already there (including the user's edits) and only
   // look for text that was missed.
   const sweep = !!req.body?.sweep;
@@ -366,7 +375,7 @@ app.post('/api/projects/:id/images/:i/translate', spendGuard, wrap(async (req, r
   let nextId = Math.max(0, ...kept.map((b) => b.id || 0)) + 1;
   const blocks = [...kept, ...out.blocks.map((b) => ({ id: nextId++, ...b }))];
   const img = await updateImage(p.id, index, { blocks, status: 'translated', hasResult: false, keep: false });
-  await fs.rm(path.join(projectDir(p.id), 'result', `${index}.png`), { force: true });
+  await storage.del(p.id, 'result', index);
   res.json({ image: img, usage: out.usage, dropped: out.dropped || 0, total: await recordUsage(p.id, out.usage) });
 }));
 
@@ -379,7 +388,7 @@ app.post('/api/projects/:id/images/:i/retranslate-block', spendGuard, wrap(async
   if (!p.images.some((i) => i.index === index)) throw Object.assign(new Error('Image not found'), { status: 404 });
   const { x, y, w, h } = req.body || {};
   if (![x, y, w, h].every(Number.isFinite) || w < 4 || h < 4) throw Object.assign(new Error('Bad box'), { status: 400 });
-  const buf = await fs.readFile(path.join(projectDir(p.id), 'orig', String(index)));
+  const buf = await storage.get(p.id, 'orig', index);
   const out = await translateRegion(buf, { x, y, w, h }, {
     provider: req.get('x-provider'),
     apiKey: req.get('x-api-key'),
@@ -418,14 +427,14 @@ app.put('/api/projects/:id/images/:i/result',
     const index = getIndex(req);
     if (!Buffer.isBuffer(req.body) || !req.body.length) throw Object.assign(new Error('Empty body'), { status: 400 });
     await sharp(req.body).metadata(); // reject non-images
-    await fs.writeFile(path.join(projectDir(p.id), 'result', `${index}.png`), req.body);
+    await storage.put(p.id, 'result', index, req.body);
     res.json(await updateImage(p.id, index, { hasResult: true, status: 'done' }));
   }));
 
 app.delete('/api/projects/:id/images/:i/result', wrap(async (req, res) => {
   const p = await needProject(req);
   const index = getIndex(req);
-  await fs.rm(path.join(projectDir(p.id), 'result', `${index}.png`), { force: true });
+  await storage.del(p.id, 'result', index);
   res.json(await updateImage(p.id, index, { hasResult: false, status: 'edited' }));
 }));
 
@@ -433,14 +442,14 @@ app.delete('/api/projects/:id/images/:i/result', wrap(async (req, res) => {
 app.get('/files/:id/orig/:i', wrap(async (req, res) => {
   const p = await needProject(req);
   const index = getIndex(req);
-  const buf = await fs.readFile(path.join(projectDir(p.id), 'orig', String(index)));
+  const buf = await storage.get(p.id, 'orig', index);
   res.type((await sharp(buf).metadata()).format || 'png').send(buf);
 }));
 
 app.get('/files/:id/result/:i.png', wrap(async (req, res) => {
   const p = await needProject(req);
   res.set('Cache-Control', 'no-cache');
-  res.sendFile(path.join(projectDir(p.id), 'result', `${getIndex(req)}.png`));
+  res.type('png').send(await storage.get(p.id, 'result', getIndex(req)));
 }));
 
 // ---------- replace images back ----------
@@ -479,9 +488,9 @@ app.get('/api/projects/:id/export', wrap(async (req, res) => {
   for (const [n, i] of picked.entries()) {
     const num = String(n + 1).padStart(3, '0');
     if (i.hasResult && !i.keep) {
-      items.push({ name: `${num}.png`, load: () => fs.readFile(path.join(projectDir(p.id), 'result', `${i.index}.png`)) });
+      items.push({ name: `${num}.png`, load: () => storage.get(p.id, 'result', i.index) });
     } else {
-      const buf = await fs.readFile(path.join(projectDir(p.id), 'orig', String(i.index)));
+      const buf = await storage.get(p.id, 'orig', i.index);
       const fmt = (await sharp(buf).metadata()).format;
       items.push({ name: `${num}.${fmt === 'jpeg' ? 'jpg' : fmt || 'png'}`, load: async () => buf });
     }
@@ -520,4 +529,4 @@ app.get('/api/projects/:id/replacements', wrap(async (req, res) => {
   })));
 }));
 
-app.listen(PORT, HOST, () => console.log(`Manga Translator (Node) → http://${HOST}:${PORT}`));
+app.listen(PORT, HOST, () => console.log(`Manga Translator (Node) → http://${HOST}:${PORT}  [images: ${storage.describe()}]`));

@@ -5,7 +5,7 @@
 const { spawnSync } = require('child_process');
 const path = require('path');
 
-const files = ['editor-basics.js', 'glossary-export.js', 'source-retranslate.js', 'reader.js', 'erase-areas.js', 'noise-filter.js', 'security.js', 'extension.js'];
+const files = ['editor-basics.js', 'glossary-export.js', 'source-retranslate.js', 'reader.js', 'erase-areas.js', 'noise-filter.js', 'security.js', 'r2.js', 'extension.js'];
 let failed = 0;
 for (const f of files) {
   console.log(`\n=== ${f} ===`);

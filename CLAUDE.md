@@ -33,6 +33,7 @@ Browser settings live in `localStorage["mt-settings"]`: `provider key model lang
 | `lib/llm.js` | Providers (Gemini direct, OpenRouter), prompt building, lenient JSON parser, optional slicing + dedupe, `translateImage`, `translateRegion` (one box), retry/backoff, cost estimate, `listModels` |
 | `lib/extract.js` | Find `<img>` in HTML (lazy attrs, srcset), `rewriteHtml` for `/view` |
 | `lib/zip.js` | Own streaming "stored" ZIP writer (no dependency) |
+| `lib/storage.js`, `lib/s3.js` | Where images live: local disk (default) or R2/S3 (`STORAGE=r2`, `R2_*`); `s3.js` = own SigV4 PUT/GET/DELETE client (no dependency, checked against AWS' get-vanilla vector and a fake bucket). Only `orig/<i>` and `result/<i>.png`; `project.json`/`page.html` always local. The app proxies the files (bucket stays private). `scripts/migrate-to-r2.js` moves existing data |
 | `lib/security.js` | `safeGet` (SSRF-safe fetch), `makeAuth` (session/signed links), rate limiter |
 | `public/app.js` | The whole web UI (home + editor + reader). Sections are commented. Routes: `#/`, `#/p/<id>[/<imageIndex>]` (editor), `#/p/<id>/read` (continuous reader: non-skipped images as one strip, result or original fallback with red outline, width slider + original toggle kept in `mt-settings.reader`) |
 | `extension/` | MV3 extension: `background.js` does the work, `popup.*` is a thin UI |
@@ -99,7 +100,7 @@ API: `PUT .../images/:i/keep` {keep}, `POST /api/projects` (url | html | extensi
 `npm test` drives the real server with the real editor in headless Chrome, and the real extension in Edge. Only the
 Gemini endpoint is stubbed (global `fetch` intercepts `generativelanguage`), so no key is needed. Needs Chrome, Edge
 and Python (zip verification); override locations with `CHROME_PATH` / `EDGE_PATH`. Branded Chrome 137+ ignores
-`--load-extension`, which is why the extension test uses Edge. Ports used: 3077-3083 and 8093-8100.
+`--load-extension`, which is why the extension test uses Edge. Ports used: 3077-3083, 3085 and 8093-8101. **Never run against a real R2 bucket** (the signing is verified against AWS' published vector and a fake bucket only).
 
 ## Verified vs NOT verified
 

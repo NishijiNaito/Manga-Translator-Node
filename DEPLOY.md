@@ -81,7 +81,24 @@ server { listen 80; server_name manga.example.com; return 301 https://$host$requ
 
 Firewall: allow only SSH, 80 and 443 (the Node port is loopback only anyway).
 
-## 3. Browser extension
+## 3. Images in Cloudflare R2 (optional)
+
+Keeps the VPS disk small and makes the images survive losing the VPS. Create a **private** bucket and an API token with *Object Read & Write* limited to that bucket (R2 → Manage API tokens), then in `.env`:
+
+```
+STORAGE=r2
+R2_ACCOUNT_ID=<your account id>
+R2_BUCKET=<bucket name>
+R2_ACCESS_KEY_ID=...
+R2_SECRET_ACCESS_KEY=...
+```
+
+- Only the images (`orig/`, `result/`) go to R2. `project.json` (text, boxes, cost) and `page.html` stay in `data/` on the VPS: **back that folder up**, it is small. Without it the images in the bucket have no names or order.
+- The bucket stays private. The app reads the files itself and serves them behind the login / signed links, so nothing about R2 is public. Do not turn on the public bucket URL: these are other people's pages.
+- Projects you already have: `node scripts/migrate-to-r2.js --dry-run`, then without `--dry-run`; add `--prune` to delete each local image once it was read back from the bucket identically.
+- Every image view is now a round trip VPS ↔ R2 (in the same region it is fast; from another continent the editor will feel slower).
+
+## 4. Browser extension
 
 Server = `https://manga.example.com`, password = the `APP_SECRET`. The extension sends it as `Authorization: Bearer …`; translated images it swaps into other sites use signed links that expire after 24 h (re-press "swap" later).
 
@@ -94,6 +111,6 @@ Server = `https://manga.example.com`, password = the `APP_SECRET`. The extension
 | Other sites' HTML on your origin (`/view`) | Scripts/iframes/forms/handlers removed **and** a `sandbox` CSP (no scripts, no cookies) |
 | Cross-site requests | `SameSite=Strict` + Origin check on every state-changing request |
 | Images for other sites / `/view` | Signed `/files` links (6 h in `/view`, 24 h for the extension) instead of cookies |
-| Disk filling up | 300 projects, 400 images per project (env: `MAX_PROJECTS`, `MAX_IMAGES_PER_PROJECT`) |
+| Disk filling up | 300 projects, 400 images per project (env: `MAX_PROJECTS`, `MAX_IMAGES_PER_PROJECT`); images can live in R2 |
 
 Not covered: more than one user (it is one shared secret); the signed links work for anyone who has them until they expire; the rate limiters live in memory and reset on restart; keep dependencies updated (`npm audit`, especially `sharp`). Back up `data/` yourself.
