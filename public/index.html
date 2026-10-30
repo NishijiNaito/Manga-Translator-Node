@@ -101,6 +101,8 @@
   <p>ภาษาต้นฉบับ<br><select id="setLang"><option value="auto">อัตโนมัติ (แนะนำ)</option><option value="ja">ญี่ปุ่น</option><option value="en">อังกฤษ</option><option value="ko">เกาหลี</option><option value="zh">จีน</option></select></p>
   <p><label><input id="setSource" type="checkbox" style="width:auto"> แสดงข้อความต้นฉบับข้างคำแปล</label><br>
     <span class="muted">ให้ AI ส่งข้อความต้นฉบับมาด้วย ใช้ตรวจว่าแปลผิดไหม (ใช้ output token เพิ่มราว 30–50%) มีผลกับการแปลครั้งต่อไป</span></p>
+  <p><label><input id="setSkipTitles" type="checkbox" style="width:auto"> ไม่แปลชื่อเรื่อง/หัวตอน</label><br>
+    <span class="muted">ให้ AI ข้ามตัวอักษรขนาดใหญ่ที่เป็นชื่อเรื่องหรือโลโก้ (เลขหน้า ตัวเลข สัญลักษณ์เดี่ยวๆ และลายน้ำ ถูกข้ามเสมอ) มีผลกับการแปลครั้งต่อไป</span></p>
   <p><label><input id="setAuto" type="checkbox" style="width:auto"> ใช้รูปอัตโนมัติหลังแก้ไข</label><br>
     <span class="muted">render รูปให้เองเมื่อหยุดแก้ไข 3 วินาที หรือเมื่อเปลี่ยนไปรูปอื่น จะได้ไม่ลืมกด “ใช้รูปนี้”</span></p>
   <p><label><input id="setSlice" type="checkbox" style="width:auto"> หั่นรูปยาวเป็นช่วงก่อนส่ง</label><br>

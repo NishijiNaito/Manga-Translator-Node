@@ -264,12 +264,13 @@ app.post('/api/projects/:id/images/:i/translate', wrap(async (req, res) => {
     slice: !!req.body?.slice,
     glossary: p.glossary || '',
     withSource: req.body?.withSource !== false, // original text next to the translation (costs some output tokens)
+    skipTitles: !!req.body?.skipTitles,
   });
   let nextId = Math.max(0, ...kept.map((b) => b.id || 0)) + 1;
   const blocks = [...kept, ...out.blocks.map((b) => ({ id: nextId++, ...b }))];
   const img = await updateImage(p.id, index, { blocks, status: 'translated', hasResult: false, keep: false });
   await fs.rm(path.join(projectDir(p.id), 'result', `${index}.png`), { force: true });
-  res.json({ image: img, usage: out.usage, total: await recordUsage(p.id, out.usage) });
+  res.json({ image: img, usage: out.usage, dropped: out.dropped || 0, total: await recordUsage(p.id, out.usage) });
 }));
 
 // Re-translate a single box (crop + one small request) instead of the whole image.

@@ -55,6 +55,7 @@ document.getElementById('btnSettings').onclick = () => {
   setSlice.checked = !!s.slice;
   setAuto.checked = s.autoApply !== false;
   setSource.checked = s.withSource !== false;
+  setSkipTitles.checked = !!s.skipTitles;
   setParallel.value = s.parallel || 3;
   dlg.showModal();
 };
@@ -82,7 +83,7 @@ async function loadModels() {
 setLoadModels.onclick = loadModels;
 setProvider.onchange = () => { modelList.innerHTML = ''; modelHint.textContent = ''; };
 setSave.onclick = () => {
-  settings.set({ withSource: setSource.checked, autoApply: setAuto.checked, parallel: Math.min(8, Math.max(1, Number(setParallel.value) || 3)), slice: setSlice.checked, provider: setProvider.value, key: setKey.value.trim(), model: setModel.value.trim(), lang: setLang.value });
+  settings.set({ withSource: setSource.checked, skipTitles: setSkipTitles.checked, autoApply: setAuto.checked, parallel: Math.min(8, Math.max(1, Number(setParallel.value) || 3)), slice: setSlice.checked, provider: setProvider.value, key: setKey.value.trim(), model: setModel.value.trim(), lang: setLang.value });
   dlg.close();
   toast('บันทึกการตั้งค่าแล้ว');
 };
@@ -726,11 +727,13 @@ function renderUsage(last) {
   el.textContent = parts.join('  |  ');
 }
 
+let lastDropped = 0; // boxes the server left out of the last translate (page numbers, symbols…)
 async function translateImageIdx(index, sweep = false) {
   const s = settings.get();
-  const { image, usage, total } = await api(`/api/projects/${P.id}/images/${index}/translate`, {
-    method: 'POST', json: { language: s.lang || 'auto', sweep, slice: !!s.slice, withSource: s.withSource !== false },
+  const { image, usage, total, dropped } = await api(`/api/projects/${P.id}/images/${index}/translate`, {
+    method: 'POST', json: { language: s.lang || 'auto', sweep, slice: !!s.slice, withSource: s.withSource !== false, skipTitles: !!s.skipTitles },
   });
+  lastDropped = dropped || 0;
   Object.assign(P.images.find((i) => i.index === index), image);
   P.usage = total;
   renderUsage(usage);
@@ -785,7 +788,7 @@ async function translateCurrent(sweep = false) {
     const now = cur.blocks.length;
     toast(sweep
       ? (now > before ? `พบข้อความที่ตกหล่นเพิ่ม ${now - before} กล่อง` : 'ไม่พบข้อความที่ตกหล่นเพิ่มแล้ว')
-      : `แปลรูป #${idx} เสร็จ — พบ ${now} กล่องข้อความ`);
+      : `แปลรูป #${idx} เสร็จ — พบ ${now} กล่องข้อความ`) + (lastDropped ? ` · ข้าม ${lastDropped} กล่องที่ไม่ต้องแปล (เลขหน้า/สัญลักษณ์)` : '');
     if (cur.index === idx) {
       pushUndo(); // so the machine's result can be undone like any other edit
       blocks = structuredClone(cur.blocks);

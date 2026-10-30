@@ -23,7 +23,7 @@ npm test                  # ~70 checks in real browsers (see Testing)
 
 Env vars read: `PORT HOST DATA_DIR GEMINI_API_KEY GEMINI_MODEL OPENROUTER_API_KEY OPENROUTER_MODEL
 MAX_OUTPUT_TOKENS TEMPERATURE SLICE_CONCURRENCY MIN_IMAGE_SIDE PRICE_IN_PER_M PRICE_OUT_PER_M`.
-Browser settings live in `localStorage["mt-settings"]`: `provider key model lang slice parallel autoApply withSource`.
+Browser settings live in `localStorage["mt-settings"]`: `provider key model lang slice parallel autoApply withSource skipTitles reader`.
 
 ## Layout
 
@@ -63,6 +63,11 @@ API: `PUT .../images/:i/keep` {keep}, `POST /api/projects` (url | html | extensi
   (after `box`, before `source`/`text`; `text` stays last) and `lib/llm.js` turns it into `erase`. In the editor the selected
   block shows them as dashed red boxes (drag/resize/✕); button "＋ พื้นที่ลบ" adds one. Whether the real model emits `parts`
   sensibly is UNVERIFIED (never called the real API); the manual editing is the fallback. Region re-translate ignores parts.
+- **Noise is never translated**: `isNoise` in `lib/llm.js` drops detections whose original has no letters (page numbers, lone
+  punctuation, ♪) or equals the translation; without `source` only letterless text (not `555`) is dropped. The server returns
+  `dropped`, the editor mentions it in the toast. The prompt also asks to omit page numbers/watermarks/credits; titles are
+  omitted only with the setting `skipTitles` (⚙️ "ไม่แปลชื่อเรื่อง/หัวตอน", sent as `skipTitles` in the translate body).
+  Both are judgement calls by the model/regex, unverified against the real API. Region re-translate is not filtered.
 - **Slicing is optional, default OFF** (user asked for whole-image requests). When on: slices overlap ~12% and
   are deduped by overlap ratio. Slices run in parallel (`SLICE_CONCURRENCY`, default 3); 429/5xx retry with backoff.
 - **Sweep** ("หาข้อความที่ตกหล่น") tells the model which boxes exist and asks only for missed ones.
