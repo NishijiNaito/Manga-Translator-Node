@@ -71,7 +71,8 @@
   .box .h { position:absolute; right:-6px; bottom:-6px; width:12px; height:12px; background:#ffd166; cursor:nwse-resize; border-radius:3px; }
   .blk { border:1px solid var(--line); border-radius:8px; padding:8px; margin-bottom:8px; }
   .blk.sel { border-color:#ffd166; }
-  .blk .f { display:flex; gap:6px; align-items:center; margin-top:6px; font-size:12px; }
+  .blk .f { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:6px; font-size:12px; }
+  .blk .nothai { font-size:12px; color:#ffd166; margin-top:6px; }
   .blk input[type=number] { width:64px; } .blk input[type=color] { width:32px; height:26px; padding:0; }
   .src { font-size:12px; color:var(--muted); margin-top:6px; }
   @media (max-width:900px){ .editor{grid-template-columns:90px 1fr;} .col.right{grid-column:1/-1; border-left:0; border-top:1px solid var(--line);} .editor{height:auto;} }

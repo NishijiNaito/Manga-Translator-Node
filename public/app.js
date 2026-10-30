@@ -598,10 +598,14 @@ function addEraseArea(id) {
 }
 
 // ---------- side panel ----------
+// Letters of another script and no Thai at all (numbers / "!?" alone are fine).
+const notThai = (t) => /[A-Za-z぀-ヿ㐀-鿿가-힯]/.test(t || '') && !/[฀-๿]/.test(t || '');
+
 function drawSide() {
   $('side').innerHTML = blocks.length ? blocks.map((b) => `
     <div class="blk ${b.id === selId ? 'sel' : ''}" data-id="${b.id}">
       <textarea rows="3" data-f="text">${esc(b.text)}</textarea>
+      ${notThai(b.text) ? '<div class="nothai">⚠ ยังไม่ใช่ภาษาไทย — กด “↻ แปลใหม่” เพื่อแปลเฉพาะกล่องนี้</div>' : ''}
       ${b.source ? `<div class="src" title="ข้อความต้นฉบับที่ AI อ่านได้">ต้นฉบับ: ${esc(b.source)}</div>` : ''}
       <div class="f">
         ขนาด <input type="number" min="0" max="200" data-f="fontSize" value="${b.fontSize || 0}" title="0 = อัตโนมัติ">

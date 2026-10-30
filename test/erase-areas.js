@@ -80,6 +80,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await page.click('#bUndo');
   check('undo brings it back', (await rect()).length === 2);
 
+  // side panel: every button of a block row stays inside the panel (they used to be pushed out of view)
+  const fit = await page.evaluate(() => {
+    const side = document.getElementById('side').getBoundingClientRect();
+    return ['[data-retr]', '[data-del]'].every((q) => { const r = document.querySelector('#side ' + q).getBoundingClientRect(); return r.right <= side.right + 1 && r.left >= side.left; });
+  });
+  check('"↻ แปลใหม่" and "ลบ" are visible inside the side panel', fit);
+  check('Thai text is not flagged', (await page.$$('#side .nothai')).length === 0);
+  await page.$eval('#side textarea[data-f=text]', (t) => { t.value = 'Ah. There is one inside'; t.dispatchEvent(new Event('input', { bubbles: true })); });
+  await page.evaluate(() => drawSide());
+  check('English text is flagged as not Thai', (await page.$$('#side .nothai')).length === 1);
+
   // survives save + reload
   await page.evaluate(() => flushSave());
   await sleep(500);
