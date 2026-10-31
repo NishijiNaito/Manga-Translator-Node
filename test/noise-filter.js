@@ -40,6 +40,24 @@ const check = (name, ok, extra = '') => { results.push(ok); console.log(`${ok ? 
   await translateImage(img, { provider: 'gemini', apiKey: 'stub', skipTitles: true });
   check('skipTitles adds the title rule to the prompt', /title-card/.test(prompts[1]));
 
+  // "kind": "sfx" turns on "no erase" for that block
+  prompts.length = 0;
+  reply = JSON.stringify([
+    { box: [100, 100, 200, 600], kind: 'speech', source: 'HELLO', text: 'สวัสดี' },
+    { box: [400, 100, 500, 600], kind: 'sfx', source: 'DON', text: 'ตึง' },
+  ]);
+  let k = await translateImage(img, { provider: 'gemini', apiKey: 'stub' });
+  const byText = (o, t) => o.blocks.find((b) => b.text === t);
+  check('kind "sfx" sets noFill on that block only', byText(k, 'ตึง')?.noFill === true && !byText(k, 'สวัสดี')?.noFill && k.blocks.length === 2);
+  check('the full-image prompt asks for "kind"', /"kind": "speech\|sfx"/.test(prompts[0]) && /sound effect/.test(prompts[0]));
+  // near-valid JSON (trailing comma) goes through the lenient parser: "kind" must not leak into "source"
+  reply = '[{"box":[400,100,500,600],"kind":"sfx","source":"DON","text":"ตึง"},{"box":[100,100,200,600],"kind":"speech","text":"สวัสดี"},]';
+  k = await translateImage(img, { provider: 'gemini', apiKey: 'stub' });
+  check('lenient parser keeps kind, source and text apart', byText(k, 'ตึง')?.noFill === true && byText(k, 'ตึง').source === 'DON' && !byText(k, 'สวัสดี')?.source && !byText(k, 'สวัสดี')?.noFill, JSON.stringify(k.blocks.map((b) => [b.text, b.source, b.noFill])));
+  reply = JSON.stringify([{ box: [100, 100, 200, 600], source: 'HELLO', text: 'สวัสดี' }]);
+  k = await translateImage(img, { provider: 'gemini', apiKey: 'stub' });
+  check('a reply without "kind" still works (no noFill)', k.blocks.length === 1 && !k.blocks[0].noFill);
+
   const failed = results.filter((x) => !x).length;
   console.log(`\n${results.length - failed}/${results.length} passed`);
   process.exit(failed ? 1 : 0);

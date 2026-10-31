@@ -43,7 +43,7 @@ Browser settings live in `localStorage["mt-settings"]`: `provider key model lang
 Data model (`project.json`): `{ id, sourceUrl, title, createdAt, glossary, usage{requests,prompt_tokens,
 completion_tokens,cost,unpriced,estimated}, images[] }`; image = `{ index, url, width, height, status
 (new|translated|edited|done), hasResult, skipped, keep, blocks[] }`; block = `{ id, x, y, w, h, text, erase?[{x,y,w,h,bg?}], source?,
-fontSize?, color?, bg? }`. **`index` is the position among ALL `<img>` in the DOM**, not among kept images.
+fontSize?, color?, bg?, noFill? }`. **`index` is the position among ALL `<img>` in the DOM**, not among kept images.
 
 `skipped` = irrelevant image (ad/logo), left out of everything. `keep` = "keep original": not translated or swapped,
 but still a page in the export (original bytes, wins over any result) and the reader; translating/editing it clears `keep`.
@@ -56,8 +56,12 @@ API: `PUT .../images/:i/keep` {keep}, `POST /api/projects` (url | html | extensi
 
 ## Decisions and gotchas (the non-obvious bits)
 
-- **LLM contract**: items are `{"box":[ymin,xmin,ymax,xmax] (0-1000), "source"?, "text"}`. `text` MUST stay the
-  last field: the lenient parser (for near-valid JSON) takes the last quoted string as the text.
+- **LLM contract**: items are `{"box":[ymin,xmin,ymax,xmax] (0-1000), "kind"?, "source"?, "text"}`. `text` MUST stay the
+  last field: the lenient parser (for near-valid JSON) takes the last quoted string as the text (it cuts `"kind"` out first).
+- **Sound effects / "ไม่ลบพื้น"**: block flag `noFill` = nothing is painted over the original (box and erase areas); the Thai is
+  drawn on top with an outline (white fill, contrasting stroke). Set per block by a checkbox in the side panel, and automatically
+  when the model answers `"kind":"sfx"` (full-image prompt only; region re-translate never changes it). The prompt also asks for
+  boxes tight around the lettering. Whether the real model tags `kind` and sizes boxes sensibly is UNVERIFIED.
 - **Output cap**: Gemini → the model's own `outputTokenLimit` (asked from the API, cached); OpenRouter → none sent.
   `MAX_OUTPUT_TOKENS` forces a value. `temperature` defaults to 0 (+ seed) so the box count doesn't wander.
 - **L-shaped / split bubbles**: one block, one translation. `x,y,w,h` is where the Thai text is laid out; `erase[]` are EXTRA

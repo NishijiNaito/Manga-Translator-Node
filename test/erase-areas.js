@@ -92,11 +92,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await page.evaluate(() => drawSide());
   check('English text is flagged as not Thai', (await page.$$('#side .nothai')).length === 1);
 
+  // "ไม่ลบพื้น": nothing is painted over the original, the text goes on top
+  check('before "no erase" the black square is still erased', (await pixel(250, 425))[0] > 235);
+  await page.click('#side input[data-f=noFill]');
+  await sleep(300);
+  check('"ไม่ลบพื้น" leaves the original under the box and erase areas untouched', (await pixel(250, 425))[0] < 20);
+  check('the background colour picker is disabled while no erasing', await page.$eval('#side input[data-f=bg]', (i) => i.disabled));
+  check('the text colour defaults to white when nothing is erased', await page.$eval('#side input[data-f=color]', (i) => i.value) === '#ffffff');
+  await page.click('#side input[data-f=noFill]');
+  await sleep(300);
+  check('switching it off erases again', (await pixel(250, 425))[0] > 235);
+  await page.click('#side input[data-f=noFill]');
+  await sleep(200);
+
   // survives save + reload
   await page.evaluate(() => flushSave());
   await sleep(500);
   const saved = await realFetch(`${B}/api/projects/${id}`).then((r) => r.json());
   check('erase areas are saved in project.json', saved.images[0].blocks[0].erase.length === 2);
+  check('"no erase" is saved in project.json', saved.images[0].blocks[0].noFill === true);
 
   check('no JavaScript errors in the page', errors.length === 0, errors.join(' | ').slice(0, 300));
   await browser.close();

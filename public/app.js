@@ -473,6 +473,24 @@ function layoutText(ctx, b) {
 
 function paintBlocks(ctx, list, src) {
   for (const b of list) {
+    if (b.noFill) {
+      // Nothing is erased (sound effects over artwork): the Thai goes on top, outlined so it stays readable.
+      const L = layoutText(ctx, b);
+      ctx.font = `700 ${L.size}px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = Math.max(2, L.size / 6);
+      const fill = b.color || '#ffffff';
+      ctx.strokeStyle = luminance(fill) > 128 ? '#000000' : '#ffffff';
+      ctx.fillStyle = fill;
+      const top = b.y + b.h / 2 - (L.lines.length * L.lh) / 2 + L.lh / 2;
+      L.lines.forEach((line, n) => {
+        ctx.strokeText(line, b.x + b.w / 2, top + n * L.lh);
+        ctx.fillText(line, b.x + b.w / 2, top + n * L.lh);
+      });
+      continue;
+    }
     // Extra areas of an L-shaped / split bubble: erased only, the text goes in the main box.
     for (const e of b.erase || []) {
       if (!e.bg) e.bg = medianColor(src, e.x, e.y, e.w, e.h);
@@ -619,8 +637,9 @@ function drawSide() {
       ${b.source ? `<div class="src" title="ข้อความต้นฉบับที่ AI อ่านได้">ต้นฉบับ: ${esc(b.source)}</div>` : ''}
       <div class="f">
         ขนาด <input type="number" min="0" max="200" data-f="fontSize" value="${b.fontSize || 0}" title="0 = อัตโนมัติ">
-        ตัวอักษร <input type="color" data-f="color" value="${b.color || '#111111'}">
-        พื้น <input type="color" data-f="bg" value="${b.bg || '#ffffff'}">
+        ตัวอักษร <input type="color" data-f="color" value="${b.color || (b.noFill ? '#ffffff' : '#111111')}">
+        พื้น <input type="color" data-f="bg" value="${b.bg || '#ffffff'}" ${b.noFill ? 'disabled' : ''}>
+        <label title="ไม่ทาสีทับของเดิม วางข้อความไทยทับพร้อมขอบ เหมาะกับคำเลียนเสียงบนภาพวาด"><input type="checkbox" data-f="noFill" ${b.noFill ? 'checked' : ''}> ไม่ลบพื้น</label>
         <button data-reset title="ใช้สีอัตโนมัติ">↺</button>
         <button data-erase title="เพิ่มพื้นที่ลบอีกก้อน สำหรับกรอบที่ไม่เป็นสี่เหลี่ยม (รูปตัว L) หรือข้อความที่แยกเป็นหลายส่วน">＋ พื้นที่ลบ${b.erase?.length ? ` (${b.erase.length})` : ''}</button>
         <button data-retr title="แปลใหม่เฉพาะกล่องนี้ (เรียก AI หนึ่งครั้ง ราคาถูกกว่าแปลทั้งรูป)">↻ แปลใหม่</button>
@@ -642,9 +661,10 @@ function drawSide() {
       inp.addEventListener('input', () => {
         const f = inp.dataset.f;
         pushUndo(`${b.id}:${f}`); // typing in one field = one undo step
-        b[f] = f === 'fontSize' ? Number(inp.value) || 0 : inp.value;
+        b[f] = f === 'fontSize' ? Number(inp.value) || 0 : f === 'noFill' ? inp.checked : inp.value;
         redraw();
         changed();
+        if (f === 'noFill') drawSide(); // refresh the colour pickers' defaults
       });
     });
     el.querySelector('[data-erase]').onclick = () => addEraseArea(b.id);
